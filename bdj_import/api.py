@@ -43,6 +43,16 @@ class API:
         response = self.request(action='validate_document', xml=xml)
         print(response)
 
+    def import_document(self, xml):
+        """Summary
+
+        Args:
+            xml (TYPE): Description
+        """
+
+        response = self.request(action='import_document', xml=xml)
+        print(response)
+
     def request(self, **params):
         """Summary
 

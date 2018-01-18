@@ -4,54 +4,15 @@ import os
 import re
 import unicodedata
 import xml.etree.cElementTree as ET
-from awt_api.api import API
+
 from xml.dom import minidom
 from bs4 import BeautifulSoup
 from fuzzywuzzy import fuzz
+import click
 
 
-def iter_classification():
-
-    # Read classification DWV
-    fpath = os.path.join(os.path.dirname(
-        __file__), 'data', 'falklands_classification.csv')
-
-    field_names = [
-        'scientificName',
-        'kingdom',
-        'phylum',
-        'class',
-        'genus',
-        'subgenus',
-        'specificEpithet',
-        'scientificNameAuthorship',
-        'waterBody',
-        'stateProvince',
-        'locality',
-        'verbatimLocality',
-        'maximumDepthInMeters',
-        'locationRemarks',
-        'decimalLatitude',
-        'decimalLongitude',
-        'geodeticDatum',
-        'samplingProtocol',
-        'eventDate',
-        'eventTime',
-        'fieldNumber',
-        'fieldNotes',
-        'individualCount',
-        'preparations',
-        'catalogueNumber',
-        'taxonConceptID',
-        'country',
-        'stateProvince',
-    ]
-
-    with open(fpath, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            yield {k.lower(): v for k, v in row.items()
-                   if k in field_names and v}
+from bdj_import.api import API
+from bdj_import.doc import Doc
 
 
 def get_description_field_name(p):
@@ -144,7 +105,7 @@ def main():
     ET.SubElement(objects, "tables")
     ET.SubElement(objects, "endnotes")
 
-    x = 0
+    count = 0
 
     material_fields = [
         # "occurrencedetails",
@@ -304,33 +265,14 @@ def main():
         # "source",
     ]
 
-    # print(species_descriptions.keys())
-
-    # print(species_descriptions['Sphaerodoropsis sp.'])
-
     # Loop through the classifications
     for classification in iter_classification():
 
+        if count > 2:
+            break
+
         taxa = []
         description = None
-
-        for taxon_field in ['taxonconceptid', 'scientificname']:
-            try:
-                taxon = classification[taxon_field]
-            except KeyError:
-                continue
-            else:
-                taxa.append(unicodedata.normalize("NFKD", taxon).strip())
-
-        for taxon in taxa:
-            try:
-                description = species_descriptions[taxon]
-            except KeyError:
-                pass
-            else:
-                # If we have a species description, exit the loop
-                # This will prioritise taxon concept ID over scientific name
-                break
 
         if description:
 
@@ -353,116 +295,38 @@ def main():
                 if is_body:
                     body.append(str(p))
 
-                # strongs = p.find_all("strong")
-
-                # for strong in strongs:
-
-                #     for description_field_name in description_field_names:
-
-                #         fuzz_ratio = fuzz.partial_ratio(
-                #             description_field_name, strong.getText().lower())
-
-                #         if fuzz_ratio > 99:
-                #             is_description = True
-
-                #             print(fuzz_ratio)
-                #             print(description_field_name)
-                #             print(strong.getText())
-
-                    # if genus in strong.getText():
-                    # is_taxonomy = True
-
-                # if is_taxonomy:
-                    # print(strongs)
-
-                # If we have multiple strong tags, need to check what's going on
-                # This is probably because these are badly formatted taxonomy
-                # tags
-                # if len(strongs) > 1:
-
-                #     is_taxonomy = False
-
-                #     for strong in strongs:
-                #         if genus in strong.getText():
-                #             is_taxonomy = True
-
-                #     if not is_taxonomy:
-                #         print(strongs)
-                #         print(genus)
-
-                # if genus in
-
-                # print(genus in strong[0].getText())
-
-                # print(description)
-                # print(classification)
-                # print(strong)
-
-                # for strong in p.find_all("strong"):
-
-                # # Find strong tags
-                # field_name = get_description_field_name(p)
-                # if field_name:
-                #     print(field_name)
-
-                # print('-^-')
-                # soup = BeautifulSoup(description, "html.parser")
-
-                #
-
-                # if 'Diagnosis' in strong.getText():
-                #     print(strong.getText())
-                # print('---')
-
-            # return
-        # print(description)
-
-        # print(description)
-
-        # print(taxa)
-
-        #     print(taxon_field)
-
-        # scientificname = classification['taxonconceptid']
-        # scientificname = unicodedata.normalize("NFKD", scientificname).strip()
-        # try:
-        #     description = species_descriptions[scientificname]
-        # except KeyError:
-        #     print('No matching species description: %s' % scientificname)
-        #     pass
-        # else:
-        #     print('MATCH')
-
-        # try
-        # print(new_str)
-
-        # print(species_descriptions[scientificname])
-
-        # x += 1
-
-        # if x < 2:
-        #     continue_+_-=
-
-        # if x > 10:
-        # break
-
-            print(body)
-
         # Ensure classification contains some terms we want
         if(bool(classification)):
+            count += 1
             treatment = ET.SubElement(taxon_treatments, "treatment")
+            # Add taxonomy fields
+            treatment_fields = ET.SubElement(treatment, "fields")
+
+            el = ET.Element('classification')
+            ET.SubElement(el, "value").text = classification.get(
+                'taxonconceptid')
+            treatment_fields.append(el)
+
+            el = ET.Element('rank')
+            ET.SubElement(el, "value").text = 'Species'
+            treatment_fields.append(el)
+
+            el = ET.Element('type_of_treatment')
+            ET.SubElement(el, "value").text = 'New taxon'
+            treatment_fields.append(el)
+
             materials = ET.SubElement(treatment, "materials")
             material = ET.SubElement(materials, "material")
-            fields = ET.SubElement(material, "fields")
+            material_fields = ET.SubElement(material, "fields")
 
             el = ET.Element('type_status')
             ET.SubElement(el, "value").text = 'Other material'
-            fields.append(el)
+            material_fields.append(el)
 
-            for fn, value in classification.items():
-                el = ET.Element(fn)
-                ET.SubElement(el, "value").text = value
-                fields.append(el)
+            # for fn, value in classification.items():
+            #     el = ET.Element(fn)
+            #     ET.SubElement(el, "value").text = value
+            #     fields.append(el)
 
             # ET.SubElement(fields, "fn").append(
 
@@ -499,7 +363,7 @@ def main():
 
     xml = ET.tostring(doc)
     # print(xml)
-    # print(minidom.parseString(ET.tostring(doc)).toprettyxml(indent="   "))
+    print(minidom.parseString(ET.tostring(doc)).toprettyxml(indent="   "))
     # api.validate_document(xml)
 
     # taxon_treatment = ET.SubElement(taxon_treatments, "taxon-treatment")
@@ -530,11 +394,14 @@ def main():
 
 def authenticate():
 
-    api = API()
-    xml = '<article xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tp="http://www.plazi.org/taxpub" article-type="research-article"></article>'
-    api.validate_document(xml)
-    print(api)
+    doc = Doc(5)
+    print(doc.xml)
+
+    # api = API()
+    # xml = '<article xmlns:mml="http://www.w3.org/1998/Math/MathML" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:tp="http://www.plazi.org/taxpub" article-type="research-article"></article>'
+    # api.validate_document(xml)
+    # print(api)
 
 
 if __name__ == "__main__":
-    main()
+    authenticate()

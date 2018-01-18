@@ -48,7 +48,7 @@ class Doc:
             __file__), 'data')
 
         self.root = ET.Element("document")
-        self.count = 0
+        self.limit = limit
         self.species_descriptions = self._parse_species_descriptions()
         self._add_document_info()
         self._add_authors()
@@ -111,13 +111,47 @@ class Doc:
             reader = csv.DictReader(f)
             for row in reader:
                 if row['Classification']:
-                    # FIXME: Multiple descriptions per taxa
                     taxon = re_a.search(row['Classification']).group(1)
-                    species_description[taxon] = row['Body']
+                    description = self._species_description_strip_taxonomy(row[
+                                                                           'Body'])
+                    species_description.setdefault(
+                        taxon, []).append(description)
 
         return species_description
 
-    def _get_species_description(self, classification):
+    @staticmethod
+    def _species_description_strip_taxonomy(description):
+        # Remove all of the extra taxonomy included in the body
+        description_field_names = ['voucher', 'diagnosis', 'remarks']
+        soup = BeautifulSoup(description, "html.parser")
+        body = []
+
+        is_body = False
+        for p in soup.find_all("p"):
+            # The body contains the taxonomy in headers at the top
+            # Which needs to be stripped out, otherwise will duplicate data in
+            # publication proper - so match the strong content
+            # If we match on classification, we end up stripping out content from later in the
+            # process e.g. tables with taxonomy in the description
+            # instead we wait until the first paragraph matching Voucher, Diagnosis or Remarks
+            # and discard all previous paragraphs
+
+            if not is_body:
+
+                # Loop through all of the strong tags, and see if it's voucher, diagnosis etc.,
+                # This denotes the start of the main body
+                for strong in p.find_all("strong"):
+                    for description_field_name in description_field_names:
+                        fuzz_ratio = fuzz.partial_ratio(
+                            description_field_name, strong.getText().lower())
+                        if fuzz_ratio > 99:
+                            is_body = True
+
+            if is_body:
+                body.append(str(p))
+        return ''.join(body)
+
+    def _get_species_descriptions(self, classification):
         for taxon_field in ['taxonconceptid', 'scientificname']:
             try:
                 taxon = classification[taxon_field]
@@ -132,10 +166,49 @@ class Doc:
                 pass
 
     def _add_taxon_treatments(self):
-
+        count = 0
         for classification in self._iter_classification():
-            description = self._get_species_description(classification)
-            print(description)
+            if count >= self.limit:
+                break
+            # Ensure classification contains some terms we want
+            # bool(empty dict) = False)
+            if(bool(classification)):
+                descriptions = self._get_species_descriptions(classification)
+
+                treatment = ET.SubElement(self.taxon_treatments, "treatment")
+                # Add taxonomy fields
+                treatment_fields = ET.SubElement(treatment, "fields")
+
+                el = ET.Element('classification')
+                ET.SubElement(el, "value").text = classification.get(
+                    'taxonconceptid')
+                treatment_fields.append(el)
+
+                el = ET.Element('rank')
+                ET.SubElement(el, "value").text = 'Species'
+                treatment_fields.append(el)
+
+                el = ET.Element('type_of_treatment')
+                ET.SubElement(el, "value").text = 'New taxon'
+                treatment_fields.append(el)
+
+                materials = ET.SubElement(treatment, "materials")
+                material = ET.SubElement(materials, "material")
+                material_fields = ET.SubElement(material, "fields")
+
+                el = ET.Element('type_status')
+                ET.SubElement(el, "value").text = 'Other material'
+                material_fields.append(el)
+
+                for fn, value in classification.items():
+                    el = ET.Element(fn)
+                    ET.SubElement(el, "value").text = value
+                    material_fields.append(el)
+
+                # if descriptions:
+                #     print(descriptions)
+
+            count += 1
 
     @property
     def xml(self):

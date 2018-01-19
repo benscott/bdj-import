@@ -16,7 +16,8 @@ def main(limit, debug):
         print(minidom.parseString(doc.xml).toprettyxml(indent="   "))
         api.validate_document(doc.xml)
     else:
-        api.validate_document(doc.xml)
+        # api.validate_document(doc.xml)
+        pass
 
 if __name__ == '__main__':
     main()

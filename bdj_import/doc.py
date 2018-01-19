@@ -205,8 +205,17 @@ class Doc:
                     ET.SubElement(el, "value").text = value
                     material_fields.append(el)
 
-                # if descriptions:
-                #     print(descriptions)
+                if descriptions:
+                    treatment_descriptions = ET.SubElement(
+                        treatment, "description")
+                    description_fields = ET.SubElement(
+                        treatment_descriptions, "fields")
+                    for description in descriptions:
+
+                        description_el = ET.SubElement(
+                            description_fields, "description")
+                        ET.SubElement(description_el,
+                                      "value").text = description
 
             count += 1
 

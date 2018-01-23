@@ -76,9 +76,3 @@ class API:
         if response['returnCode'] != '0':
             raise Exception('API Error: {}'.format(response['errorMsg']))
         return response
-
-    def hey():
-
-        pass
-
-        # print(tree)

@@ -8,6 +8,7 @@ from bdj_import.api import API
 from xml.dom import minidom
 from bs4 import BeautifulSoup
 from fuzzywuzzy import fuzz
+from collections import OrderedDict
 
 
 class Doc:
@@ -43,13 +44,18 @@ class Doc:
         'stateProvince',
     ]
 
+    family_descriptions = {}
+    species_descriptions = {}
+
     def __init__(self, limit=None):
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
 
         self.root = ET.Element("document")
         self.limit = limit
-        self.species_descriptions = self._parse_species_descriptions()
+
+        self.classification = self._parse_dwca()
+        self._parse_species_descriptions()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
@@ -91,33 +97,58 @@ class Doc:
         ET.SubElement(objects, "tables")
         ET.SubElement(objects, "endnotes")
 
-    def _iter_classification(self):
-        # Read classification DWV
-        fpath = os.path.join(self.data_dir, 'falklands_classification.csv')
+    def _parse_dwca(self):
+        classification = {}
+        fpath = os.path.join(self.data_dir, 'falklands-utf8.dwca.csv')
         with open(fpath, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                yield {k.lower(): v for k, v in row.items()
-                       if k in self.classification_fields and v}
+                # If this is a voucher specimen, we want to include it
+                # otherwise skip it
+                type_status = row.get('typeStatus').strip()
+                if type_status.lower() != 'voucher':
+                    continue
+
+                family = row['family'].strip()
+
+                classification.setdefault(family, {})
+
+                taxon = row.get('taxonConceptID')
+                normalized_taxon = unicodedata.normalize("NFKD", taxon).strip()
+
+                # We only want certain fields included
+                data = {k.lower(): v for k, v in row.items()
+                        if k in self.classification_fields and v}
+
+                classification[family].setdefault(
+                    normalized_taxon, []).append(data)
+
+        return OrderedDict(sorted(classification.items()))
 
     def _parse_species_descriptions(self):
 
         # Read classification DWV
         fpath = os.path.join(
-            self.data_dir, 'species-description-export.html.csv')
-        species_description = {}
-        re_a = re.compile(r">(.*?)</a>")
+            self.data_dir, 'species-description-export.csv')
+
         with open(fpath, 'r') as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                if row['Classification']:
-                    taxon = re_a.search(row['Classification']).group(1)
-                    description = self._species_description_strip_taxonomy(row[
-                                                                           'Body'])
-                    species_description.setdefault(
-                        taxon, []).append(description)
 
-        return species_description
+            for row in reader:
+
+                taxon = row['Classification']
+                rank = row['Rank']
+
+                # If this is family rank, then add to family_descriptions dict,
+                # keyed by family name
+                if rank == 'Family':
+                    # Get the first part of the name
+                    family_name = taxon.split(' ', 1)[0]
+
+                    self.family_descriptions[family_name] = row['Body']
+
+                else:
+                    self.species_descriptions[taxon] = row['Body']
 
     @staticmethod
     def _species_description_strip_taxonomy(description):
@@ -167,58 +198,79 @@ class Doc:
 
     def _add_taxon_treatments(self):
         count = 0
-        for classification in self._iter_classification():
-            if count >= self.limit:
-                break
-            # Ensure classification contains some terms we want
-            # bool(empty dict) = False)
-            if(bool(classification)):
-                descriptions = self._get_species_descriptions(classification)
 
-                treatment = ET.SubElement(self.taxon_treatments, "treatment")
-                # Add taxonomy fields
-                treatment_fields = ET.SubElement(treatment, "fields")
+        # description = self._species_description_strip_taxonomy(row[
+        #     'Body'])
+        # species_description.setdefault(
+        #     taxon, []).append(description)
 
-                el = ET.Element('classification')
-                ET.SubElement(el, "value").text = classification.get(
-                    'taxonconceptid')
-                treatment_fields.append(el)
+        print(self.family_descriptions)
+        # As per Adrian's request, we want to structure the doc so
+        # family are included
+        for family, taxa in self.classification.items():
 
-                el = ET.Element('rank')
-                ET.SubElement(el, "value").text = 'Species'
-                treatment_fields.append(el)
+            print(family)
+            print(self.family_descriptions[family])
 
-                el = ET.Element('type_of_treatment')
-                ET.SubElement(el, "value").text = 'New taxon'
-                treatment_fields.append(el)
+            # try:
 
-                materials = ET.SubElement(treatment, "materials")
-                material = ET.SubElement(materials, "material")
-                material_fields = ET.SubElement(material, "fields")
+            # except KeyError:
 
-                el = ET.Element('type_status')
-                ET.SubElement(el, "value").text = 'Other material'
-                material_fields.append(el)
+            #     print(family)
 
-                for fn, value in classification.items():
-                    el = ET.Element(fn)
-                    ET.SubElement(el, "value").text = value
-                    material_fields.append(el)
+        # for classification in self._iter_classification():
+        #     if count >= self.limit:
+        #         break
+        #     # Ensure classification contains some terms we want
+        #     # bool(empty dict) = False)
+        #     if(bool(classification)):
+        # descriptions = self._get_species_descriptions(classification)
 
-                if descriptions:
-                    treatment_descriptions = ET.SubElement(
-                        treatment, "description")
-                    description_fields = ET.SubElement(
-                        treatment_descriptions, "fields")
-                    for description in descriptions:
+        #         treatment = ET.SubElement(self.taxon_treatments, "treatment")
+        #         # Add taxonomy fields
+        #         treatment_fields = ET.SubElement(treatment, "fields")
 
-                        description_el = ET.SubElement(
-                            description_fields, "description")
-                        ET.SubElement(description_el,
-                                      "value").text = description
+        #         el = ET.Element('classification')
+        #         ET.SubElement(el, "value").text = classification.get(
+        #             'taxonconceptid')
+        #         treatment_fields.append(el)
 
-            count += 1
+        #         el = ET.Element('rank')
+        #         ET.SubElement(el, "value").text = 'Species'
+        #         treatment_fields.append(el)
+
+        #         el = ET.Element('type_of_treatment')
+        #         ET.SubElement(el, "value").text = 'New taxon'
+        #         treatment_fields.append(el)
+
+        #         materials = ET.SubElement(treatment, "materials")
+        #         material = ET.SubElement(materials, "material")
+        #         material_fields = ET.SubElement(material, "fields")
+
+        #         el = ET.Element('type_status')
+        #         ET.SubElement(el, "value").text = 'Other material'
+        #         material_fields.append(el)
+
+        #         for fn, value in classification.items():
+        #             el = ET.Element(fn)
+        #             ET.SubElement(el, "value").text = value
+        #             material_fields.append(el)
+
+        #         if descriptions:
+        #             treatment_descriptions = ET.SubElement(
+        #                 treatment, "description")
+        #             description_fields = ET.SubElement(
+        #                 treatment_descriptions, "fields")
+        #             for description in descriptions:
+
+        #                 description_el = ET.SubElement(
+        #                     description_fields, "description")
+        #                 ET.SubElement(description_el,
+        #                               "value").text = description
+
+        #     count += 1
 
     @property
     def xml(self):
+        return ''
         return ET.tostring(self.root)

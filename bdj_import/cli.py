@@ -12,12 +12,15 @@ from bdj_import.doc import Doc
 def main(limit, debug):
     doc = Doc(limit)
     api = API()
+
     if debug:
-        print(minidom.parseString(doc.xml).toprettyxml(indent="   "))
+        prettty_xml = minidom.parseString(doc.xml).toprettyxml(indent="   ")
+        print(prettty_xml)
+        with click.open_file('publication.xml', 'w') as f:
+            f.write(prettty_xml)
         api.validate_document(doc.xml)
     else:
-        # api.validate_document(doc.xml)
-        pass
+        api.import_document(doc.xml)
 
 if __name__ == '__main__':
     main()

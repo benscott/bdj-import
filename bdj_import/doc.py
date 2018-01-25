@@ -4,11 +4,13 @@ import os
 import re
 import unicodedata
 import xml.etree.cElementTree as ET
-from bdj_import.api import API
 from xml.dom import minidom
 from bs4 import BeautifulSoup
 from fuzzywuzzy import fuzz
 from collections import OrderedDict
+
+from bdj_import.api import API
+from bdj_import.lib import normalize
 
 
 class Doc:
@@ -18,10 +20,8 @@ class Doc:
         'kingdom',
         'phylum',
         'class',
-        'genus',
-        'subgenus',
-        'specificEpithet',
-        'scientificNameAuthorship',
+        # 'genus',
+        # 'scientificNameAuthorship',
         'waterBody',
         'stateProvince',
         'locality',
@@ -47,19 +47,22 @@ class Doc:
     family_descriptions = {}
     species_descriptions = {}
 
-    def __init__(self, limit=None):
+    def __init__(self, title, limit=None):
+        self.title = title
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
 
         self.root = ET.Element("document")
         self.limit = limit
 
+        self.figures = self._parse_images()
+
         self.classification = self._parse_dwca()
+
         self._parse_species_descriptions()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
-        self._add_taxon_treatments()
 
     def _add_document_info(self):
         # Create document info
@@ -74,7 +77,18 @@ class Doc:
         # Add authors
         authors = ET.SubElement(self.root, "authors")
         ET.SubElement(authors, "author", first_name='Ben',
-                               last_name='Scott', co_author='1', email='ben@benscott.co.uk', right='1', submitting_author='1')
+                               last_name='Scott', co_author='1', email='b.scott@nhm.ac.uk', right='1', submitting_author='1')
+
+    def _add_metadata(self, article_metadata):
+        # Add authors
+        title_and_authors = ET.SubElement(
+            article_metadata, "title_and_authors")
+
+        title_and_authors_fields = ET.SubElement(title_and_authors, "fields")
+
+        el = ET.Element('title')
+        ET.SubElement(el, "value").text = self.title
+        title_and_authors_fields.append(el)
 
     def _add_objects(self):
         # Add the main document objects - these are all required to pass document
@@ -84,8 +98,8 @@ class Doc:
         ET.SubElement(objects, "introduction")
         ET.SubElement(objects, "materials_and_methods")
         ET.SubElement(objects, "data_resources")
-        self.taxon_treatments = ET.SubElement(objects, "taxon_treatments")
-        ET.SubElement(objects, "checklists")
+        taxon_treatments = ET.SubElement(objects, "taxon_treatments")
+        checklists = ET.SubElement(objects, "checklists")
         ET.SubElement(objects, "identification_keys")
         ET.SubElement(objects, "results")
         ET.SubElement(objects, "discussion")
@@ -96,6 +110,12 @@ class Doc:
         ET.SubElement(objects, "figures")
         ET.SubElement(objects, "tables")
         ET.SubElement(objects, "endnotes")
+
+        # After the objects (general structure has been created), we can
+        # add the dependent metadata and treatments
+        self._add_metadata(article_metadata)
+        self._add_taxon_treatments(taxon_treatments)
+        self._add_checklists(checklists)
 
     def _parse_dwca(self):
         classification = {}
@@ -109,21 +129,48 @@ class Doc:
                 if type_status.lower() != 'voucher':
                     continue
 
-                family = row['family'].strip()
+                family = normalize(row['family'])
 
                 classification.setdefault(family, {})
 
                 taxon = row.get('taxonConceptID')
-                normalized_taxon = unicodedata.normalize("NFKD", taxon).strip()
+                normalized_taxon = normalize(taxon)
 
                 # We only want certain fields included
-                data = {k.lower(): v for k, v in row.items()
-                        if k in self.classification_fields and v}
+                material = {k.lower(): v for k, v in row.items()
+                            if k in self.classification_fields and v}
+
+                taxon_name_fields = [
+                    # ('genus', 'genus'), ('subgenus', 'subgenus'), ('taxon_authors', 'scientificNameAuthorship')
+                    ('genus', 'genus')
+                ]
+                taxon_name = {n: normalize(row[m])
+                              for n, m in taxon_name_fields if row.get(m, None)}
 
                 classification[family].setdefault(
-                    normalized_taxon, []).append(data)
+                    normalized_taxon, {
+                        'taxon_name': taxon_name,
+                        'materials': []
+                    })
+
+                classification[family][normalized_taxon][
+                    'materials'].append(material)
 
         return OrderedDict(sorted(classification.items()))
+
+    def _parse_images(self):
+        # Create a dict of images, keyed by taxonomic name
+        images = {}
+        fpath = os.path.join(self.data_dir, 'image-export.csv')
+        with open(fpath, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                taxon = normalize(row['Name'])
+                images.setdefault(taxon, []).append({
+                    'path': row['Path'],
+                    'description': normalize(row['Description'])
+                })
+        return images
 
     def _parse_species_descriptions(self):
 
@@ -196,7 +243,7 @@ class Doc:
             except KeyError:
                 pass
 
-    def _add_taxon_treatments(self):
+    def _add_taxon_treatments(self, taxon_treatments):
         count = 0
 
         # description = self._species_description_strip_taxonomy(row[
@@ -204,13 +251,42 @@ class Doc:
         # species_description.setdefault(
         #     taxon, []).append(description)
 
-        print(self.family_descriptions)
         # As per Adrian's request, we want to structure the doc so
-        # family are included
+        # family are included - not possible as a tree but at least in order
         for family, taxa in self.classification.items():
 
-            print(family)
-            print(self.family_descriptions[family])
+            if count >= self.limit:
+                break
+
+            for name, taxon in taxa.items():
+
+                # Do we have figures for this taxon treatment?
+                try:
+                    self._add_figures(self.figures[name])
+                except KeyError:
+                    pass
+                else:
+                    # No key error - we have figures for this taxon treatment
+                    # So we need to attach the figure to the treatment
+                    pass
+                    print(self.figures[name])
+
+                treatment = self._build_taxon_treatment(name, taxon)
+                taxon_treatments.append(treatment)
+
+            #     print('-----')
+
+            #     for material in materials:
+
+            #         print(material.get('genus', None))
+            # print(classification)
+            # print(classification.get('genus', None))
+
+            # print(taxa['genus'])
+
+            # self._add_family(family)
+
+            # self._add_family(family)
 
             # try:
 
@@ -218,59 +294,167 @@ class Doc:
 
             #     print(family)
 
-        # for classification in self._iter_classification():
-        #     if count >= self.limit:
-        #         break
-        #     # Ensure classification contains some terms we want
-        #     # bool(empty dict) = False)
-        #     if(bool(classification)):
-        # descriptions = self._get_species_descriptions(classification)
+            # for classification in self._iter_classification():
 
-        #         treatment = ET.SubElement(self.taxon_treatments, "treatment")
-        #         # Add taxonomy fields
-        #         treatment_fields = ET.SubElement(treatment, "fields")
+            #     # Ensure classification contains some terms we want
+            #     # bool(empty dict) = False)
+            #     if(bool(classification)):
+            # descriptions = self._get_species_descriptions(classification)
 
-        #         el = ET.Element('classification')
-        #         ET.SubElement(el, "value").text = classification.get(
-        #             'taxonconceptid')
-        #         treatment_fields.append(el)
+            #         treatment = ET.SubElement(self.taxon_treatments, "treatment")
+            #         # Add taxonomy fields
+            #         treatment_fields = ET.SubElement(treatment, "fields")
 
-        #         el = ET.Element('rank')
-        #         ET.SubElement(el, "value").text = 'Species'
-        #         treatment_fields.append(el)
+            #         el = ET.Element('classification')
+            #         ET.SubElement(el, "value").text = classification.get(
+            #             'taxonconceptid')
+            #         treatment_fields.append(el)
 
-        #         el = ET.Element('type_of_treatment')
-        #         ET.SubElement(el, "value").text = 'New taxon'
-        #         treatment_fields.append(el)
+            #         el = ET.Element('rank')
+            #         ET.SubElement(el, "value").text = 'Species'
+            #         treatment_fields.append(el)
 
-        #         materials = ET.SubElement(treatment, "materials")
-        #         material = ET.SubElement(materials, "material")
-        #         material_fields = ET.SubElement(material, "fields")
+            #         if descriptions:
+            #             treatment_descriptions = ET.SubElement(
+            #                 treatment, "description")
+            #             description_fields = ET.SubElement(
+            #                 treatment_descriptions, "fields")
+            #             for description in descriptions:
 
-        #         el = ET.Element('type_status')
-        #         ET.SubElement(el, "value").text = 'Other material'
-        #         material_fields.append(el)
+            #                 description_el = ET.SubElement(
+            #                     description_fields, "description")
+            #                 ET.SubElement(description_el,
+            #                               "value").text = description
 
-        #         for fn, value in classification.items():
-        #             el = ET.Element(fn)
-        #             ET.SubElement(el, "value").text = value
-        #             material_fields.append(el)
+            count += 1
 
-        #         if descriptions:
-        #             treatment_descriptions = ET.SubElement(
-        #                 treatment, "description")
-        #             description_fields = ET.SubElement(
-        #                 treatment_descriptions, "fields")
-        #             for description in descriptions:
+    def _build_taxon_treatment(self, name, taxon):
 
-        #                 description_el = ET.SubElement(
-        #                     description_fields, "description")
-        #                 ET.SubElement(description_el,
-        #                               "value").text = description
+        treatment = ET.Element('treatment')
 
-        #     count += 1
+        # Add taxonomy fields
+        treatment_fields = ET.SubElement(treatment, "fields")
+
+        el = ET.Element('classification')
+        ET.SubElement(el, "value").text = name
+
+        treatment_fields.append(el)
+
+        el = ET.Element('type_of_treatment')
+        ET.SubElement(el, "value").text = 'New taxon'
+        treatment_fields.append(el)
+
+        el = ET.Element('rank')
+        ET.SubElement(el, "value").text = 'Species'
+        treatment_fields.append(el)
+
+        el = ET.Element('species')
+        ET.SubElement(el, "value").text = name
+        treatment_fields.append(el)
+
+        # for taxon_name_field, taxon_name_value in taxon['taxon_name'].items():
+        #     el = ET.Element(taxon_name_field)
+        #     ET.SubElement(el, "value").text = taxon_name_value
+        #     treatment_fields.append(el)
+
+        # Add material fields
+        materials = ET.SubElement(treatment, "materials")
+
+        for material in taxon.get('materials'):
+
+            material_el = ET.SubElement(materials, "material")
+            material_fields = ET.SubElement(material_el, "fields")
+
+            el = ET.Element('type_status')
+            ET.SubElement(el, "value").text = 'Other material'
+            material_fields.append(el)
+
+            for fn, value in material.items():
+                el = ET.Element(fn)
+                ET.SubElement(el, "value").text = value
+                material_fields.append(el)
+
+        return treatment
+
+        # Add taxon name fields
+        # taxon_name = ET.SubElement(treatment, "taxon_name")
+        # taxon_name_fields = ET.SubElement(taxon_name, "fields")
+
+        # print(taxon)
+
+    def _add_checklists(self, checklists):
+        count = 0
+        for family, taxa in self.classification.items():
+
+            checklist = ET.Element('checklist')
+
+            # Add taxonomy fields
+            checklist_fields = ET.SubElement(checklist, "fields")
+
+            el = ET.Element('classification')
+            ET.SubElement(el, "value").text = family
+            checklist_fields.append(el)
+
+            checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
+
+            # Add taxonomy fields
+            checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
+
+            el = ET.Element('taxon_authors_and_year')
+            ET.SubElement(el, "value").text = family
+
+            checklist_taxon_fields.append(el)
+
+            el = ET.Element('rank')
+            ET.SubElement(el, "value").text = 'family'
+
+            checklist_taxon_fields.append(el)
+            checklists.append(checklist)
+
+            if count >= self.limit:
+                break
+
+            # for name, taxon in taxa.items():
+                # treatment = self._build_taxon_treatment(name, taxon)
+                # taxon_treatments.append(treatment)
+
+            count += 1
+
+    def _add_figures(self, figures):
+
+        object_figures = self.root.find('objects/figures')
+
+        # We need to specify an id, so lets find out how many
+        # figures we've added, and then use count as identifier
+        figure_count = len(object_figures.findall('figure'))
+
+        for i, figure in enumerate(figures):
+
+            figure_id = figure_count + i
+            figure_el = ET.Element('figure', {'id': str(figure_id)})
+
+            # Add figure fields
+            figure_fields = ET.SubElement(figure_el, "fields")
+            figure_type = ET.SubElement(figure_fields, 'figure_type')
+            ET.SubElement(figure_type, "value").text = 'Image'
+
+            # Add figure fields
+            image = ET.SubElement(figure_el, "image")
+            image_fields = ET.SubElement(image, "fields")
+            # Add image caption
+            figure_caption = ET.SubElement(image_fields, 'figure_caption')
+            ET.SubElement(figure_caption, "value").text = figure.get(
+                'description', None
+            )
+            # And image URL
+            image_url = ET.SubElement(image_fields, 'image_url')
+            ET.SubElement(image_url, "value").text = figure['path']
+
+            # Add the figure element to the figures
+            object_figures.append(figure_el)
+
+            figures[i]['id'] = figure_id
 
     @property
     def xml(self):
-        return ''
         return ET.tostring(self.root)

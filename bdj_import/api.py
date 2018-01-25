@@ -40,8 +40,7 @@ class API:
             xml (TYPE): Description
         """
 
-        response = self.request(action='validate_document', xml=xml)
-        print(response)
+        return self.request(action='validate_document', xml=xml)
 
     def import_document(self, xml):
         """Summary
@@ -50,8 +49,7 @@ class API:
             xml (TYPE): Description
         """
 
-        response = self.request(action='import_document', xml=xml)
-        print(response)
+        return self.request(action='import_document', xml=xml)
 
     def request(self, **params):
         """Summary

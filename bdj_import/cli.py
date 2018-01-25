@@ -8,19 +8,32 @@ from bdj_import.doc import Doc
 
 @click.command()
 @click.option('--limit', default=None, help='Number of classifications.', type=int)
-@click.option('--debug', is_flag=True)
-def main(limit, debug):
-    doc = Doc(limit)
+@click.option('--validate', is_flag=True)
+@click.option('--console', 'output', flag_value='console')
+@click.option('--file', 'output', flag_value='file')
+@click.option('--bdj', 'output', flag_value='bdj')
+def main(limit, validate, output):
+
+    response = None
+    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit)
     api = API()
 
-    if debug:
-        prettty_xml = minidom.parseString(doc.xml).toprettyxml(indent="   ")
-        print(prettty_xml)
-        with click.open_file('publication.xml', 'w') as f:
-            f.write(prettty_xml)
-        api.validate_document(doc.xml)
-    else:
-        api.import_document(doc.xml)
+    if validate and not output == 'bdj':
+        response = api.validate_document(doc.xml)
+
+    pretty_xml = minidom.parseString(doc.xml).toprettyxml(indent="   ")
+
+    if output:
+        if output == 'file':
+            with click.open_file('/tmp/publication.xml', 'w') as f:
+                f.write(pretty_xml)
+        elif output == 'console':
+            print(pretty_xml)
+        else:
+            response = api.import_document(doc.xml)
+
+    if response:
+        print(response)
 
 if __name__ == '__main__':
     main()

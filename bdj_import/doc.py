@@ -55,11 +55,11 @@ class Doc:
         self.root = ET.Element("document")
         self.limit = limit
 
-        self.figures = self._parse_images()
+        self.figures = self._read_images_export_csv()
 
-        self.classification = self._parse_dwca()
+        self.classification = self._read_dwca_export_csv()
 
-        self._parse_species_descriptions()
+        self._read_species_descriptions_export_csv()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
@@ -117,7 +117,7 @@ class Doc:
         self._add_taxon_treatments(taxon_treatments)
         self._add_checklists(checklists)
 
-    def _parse_dwca(self):
+    def _read_dwca_export_csv(self):
         classification = {}
         fpath = os.path.join(self.data_dir, 'falklands-utf8.dwca.csv')
         with open(fpath, 'r') as f:
@@ -141,8 +141,9 @@ class Doc:
                             if k in self.classification_fields and v}
 
                 taxon_name_fields = [
-                    # ('genus', 'genus'), ('subgenus', 'subgenus'), ('taxon_authors', 'scientificNameAuthorship')
-                    ('genus', 'genus')
+                    ('genus', 'genus'),
+                    ('subgenus', 'subgenus'),
+                    ('taxon_authors', 'scientificNameAuthorship')
                 ]
                 taxon_name = {n: normalize(row[m])
                               for n, m in taxon_name_fields if row.get(m, None)}
@@ -158,7 +159,7 @@ class Doc:
 
         return OrderedDict(sorted(classification.items()))
 
-    def _parse_images(self):
+    def _read_images_export_csv(self):
         # Create a dict of images, keyed by taxonomic name
         images = {}
         fpath = os.path.join(self.data_dir, 'image-export.csv')
@@ -172,7 +173,7 @@ class Doc:
                 })
         return images
 
-    def _parse_species_descriptions(self):
+    def _read_species_descriptions_export_csv(self):
 
         # Read classification DWV
         fpath = os.path.join(
@@ -195,16 +196,18 @@ class Doc:
                     self.family_descriptions[family_name] = row['Body']
 
                 else:
-                    self.species_descriptions[taxon] = row['Body']
+                    self.species_descriptions[taxon] = self._parse_species_description(row[
+                                                                                       'Body'])
 
     @staticmethod
-    def _species_description_strip_taxonomy(description):
-        # Remove all of the extra taxonomy included in the body
+    def _parse_species_description(species_description):
+        # Parse species description, splitting into voucher diagnosis & remarks
         description_field_names = ['voucher', 'diagnosis', 'remarks']
-        soup = BeautifulSoup(description, "html.parser")
-        body = []
+        soup = BeautifulSoup(species_description, "html.parser")
+        # Create a data dict, keyed by the description field name
+        data = {}
 
-        is_body = False
+        current_field = None
         for p in soup.find_all("p"):
             # The body contains the taxonomy in headers at the top
             # Which needs to be stripped out, otherwise will duplicate data in
@@ -214,48 +217,47 @@ class Doc:
             # instead we wait until the first paragraph matching Voucher, Diagnosis or Remarks
             # and discard all previous paragraphs
 
-            if not is_body:
+            # Loop through all of the strong tags, and see if it's voucher, diagnosis etc.,
+            # If it is, then set the current field - used to key
+            for strong in p.find_all("strong"):
+                for description_field_name in description_field_names:
+                    fn = strong.getText().lower()
+                    fuzz_ratio = fuzz.partial_ratio(
+                        description_field_name, strong.getText().lower())
+                    if fuzz_ratio > 99:
+                        current_field = description_field_name
+                        p = str(p).replace(str(strong), '')
 
-                # Loop through all of the strong tags, and see if it's voucher, diagnosis etc.,
-                # This denotes the start of the main body
-                for strong in p.find_all("strong"):
-                    for description_field_name in description_field_names:
-                        fuzz_ratio = fuzz.partial_ratio(
-                            description_field_name, strong.getText().lower())
-                        if fuzz_ratio > 99:
-                            is_body = True
+            if current_field:
+                data.setdefault(current_field, []).append(normalize(str(p)))
 
-            if is_body:
-                body.append(str(p))
-        return ''.join(body)
+        # Flatten the data values
+        data = {i: ''.join(j) for i, j in data.items()}
 
-    def _get_species_descriptions(self, classification):
-        for taxon_field in ['taxonconceptid', 'scientificname']:
-            try:
-                taxon = classification[taxon_field]
-            except KeyError:
-                continue
+        return data
 
-            # Get rid of any odd characters and white space
-            normalized_taxon = unicodedata.normalize("NFKD", taxon).strip()
-            try:
-                return self.species_descriptions[normalized_taxon]
-            except KeyError:
-                pass
+    # def _get_species_descriptions(self, classification):
+    #     for taxon_field in ['taxonconceptid', 'scientificname']:
+    #         try:
+    #             taxon = classification[taxon_field]
+    #         except KeyError:
+    #             continue
+
+    #         # Get rid of any odd characters and white space
+    #         normalized_taxon = unicodedata.normalize("NFKD", taxon).strip()
+    #         try:
+    #             return self.species_descriptions[normalized_taxon]
+    #         except KeyError:
+    #             pass
 
     def _add_taxon_treatments(self, taxon_treatments):
         count = 0
-
-        # description = self._species_description_strip_taxonomy(row[
-        #     'Body'])
-        # species_description.setdefault(
-        #     taxon, []).append(description)
 
         # As per Adrian's request, we want to structure the doc so
         # family are included - not possible as a tree but at least in order
         for family, taxa in self.classification.items():
 
-            if count >= self.limit:
+            if self.limit and count >= self.limit:
                 break
 
             for name, taxon in taxa.items():
@@ -269,9 +271,29 @@ class Doc:
                     # No key error - we have figures for this taxon treatment
                     # So we need to attach the figure to the treatment
                     pass
-                    print(self.figures[name])
+                    # FIXME: Add figures
+                    # print(self.figures[name])
 
                 treatment = self._build_taxon_treatment(name, taxon)
+                # Do we have species description for this treatment
+
+                # print(species_description)
+
+                # print(self.species_descriptions.keys())
+                # print(self.species_descriptions[name])
+
+                try:
+                    pass
+                    # self._add_figures(self.figures[name])
+                except KeyError:
+                    pass
+                else:
+                    # No key error - we have figures for this taxon treatment
+                    # So we need to attach the figure to the treatment
+                    pass
+                    # FIXME: Add figures
+                    # print(self.figures[name])
+
                 taxon_treatments.append(treatment)
 
             #     print('-----')
@@ -374,51 +396,103 @@ class Doc:
                 ET.SubElement(el, "value").text = value
                 material_fields.append(el)
 
+        try:
+            species_description = self.species_descriptions[name]
+        except KeyError:
+            pass
+        else:
+
+            # Change our field name to the corresponding one in the XML
+            for fn, el_name in [('diagnosis', 'diagnosis'), ('remarks', 'notes')]:
+
+                try:
+                    description = species_description[fn]
+                except KeyError:
+                    continue
+                else:
+                    species_description_el = ET.SubElement(treatment, el_name)
+                    species_description_el_fields = ET.SubElement(
+                        species_description_el, "fields")
+
+                    el = ET.SubElement(species_description_el_fields, el_name)
+                    ET.SubElement(el, "value").text = description
+
         return treatment
-
-        # Add taxon name fields
-        # taxon_name = ET.SubElement(treatment, "taxon_name")
-        # taxon_name_fields = ET.SubElement(taxon_name, "fields")
-
-        # print(taxon)
 
     def _add_checklists(self, checklists):
         count = 0
         for family, taxa in self.classification.items():
 
-            checklist = ET.Element('checklist')
+            # checklist = ET.Element('checklist')
 
-            # Add taxonomy fields
-            checklist_fields = ET.SubElement(checklist, "fields")
+            # # Add taxonomy fields
+            # checklist_fields = ET.SubElement(checklist, "fields")
 
-            el = ET.Element('classification')
-            ET.SubElement(el, "value").text = family
-            checklist_fields.append(el)
+            # el = ET.Element('classification')
+            # ET.SubElement(el, "value").text = family
+            # checklist_fields.append(el)
 
-            checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
+            # el = ET.Element('title')
+            # ET.SubElement(el, "value").text = family
+            # checklist_fields.append(el)
 
-            # Add taxonomy fields
-            checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
+            # checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
 
-            el = ET.Element('taxon_authors_and_year')
-            ET.SubElement(el, "value").text = family
+            # # Add taxonomy fields
+            # checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
 
-            checklist_taxon_fields.append(el)
+            # el = ET.Element('taxon_authors_and_year')
+            # ET.SubElement(el, "value").text = family
 
-            el = ET.Element('rank')
-            ET.SubElement(el, "value").text = 'family'
+            # checklist_taxon_fields.append(el)
 
-            checklist_taxon_fields.append(el)
-            checklists.append(checklist)
+            # el = ET.Element('rank')
+            # ET.SubElement(el, "value").text = 'family'
 
-            if count >= self.limit:
+            # checklist_taxon_fields.append(el)
+            # checklists.append(checklist)
+
+            checklist_el = self._build_checklist(family, 'family')
+            checklists.append(checklist_el)
+
+            for taxon_name, taxon in taxa.items():
+                checklist_el = self._build_checklist(
+                    taxon_name, 'species', **taxon.get('taxon_name'))
+                checklists.append(checklist_el)
+
+            if count and count >= self.limit:
                 break
 
-            # for name, taxon in taxa.items():
-                # treatment = self._build_taxon_treatment(name, taxon)
-                # taxon_treatments.append(treatment)
-
             count += 1
+
+    @staticmethod
+    def _build_checklist(taxon_name, rank, **kwargs):
+        checklist = ET.Element('checklist')
+
+        # Add taxonomy fields
+        checklist_fields = ET.SubElement(checklist, "fields")
+
+        el = ET.Element('classification')
+        ET.SubElement(el, "value").text = taxon_name
+        checklist_fields.append(el)
+
+        el = ET.Element('title')
+        ET.SubElement(el, "value").text = taxon_name
+        checklist_fields.append(el)
+
+        checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
+
+        # Add taxonomy fields
+        checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
+
+        if kwargs.get('taxon_authors', None):
+            el = ET.Element('taxon_authors_and_year')
+            ET.SubElement(el, "value").text = kwargs.get('taxon_authors')
+            checklist_taxon_fields.append(el)
+
+        el = ET.Element('rank')
+        ET.SubElement(el, "value").text = rank
+        return checklist
 
     def _add_figures(self, figures):
 

@@ -18,13 +18,8 @@ def main(limit, validate, output):
     doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit)
     api = API()
 
-    print(doc.xml)
-    xml = str(doc.xml)
-    # print(type(xml))
-    # xml.replace('|||', '<p><inline_citation citation_id="1" /></p>')
-
     if validate and not output == 'bdj':
-        response = api.validate_document(xml)
+        response = api.validate_document(doc.xml)
 
     pretty_xml = minidom.parseString(doc.xml).toprettyxml(indent="   ")
 

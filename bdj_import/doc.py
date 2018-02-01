@@ -20,11 +20,12 @@ class Doc:
 
     nomenclature_fields = [
         'genus',
-        'family',
-        'scientificNameAuthorship'
+        'scientificNameAuthorship',
+        'specificEpithet'
     ]
 
     material_fields = [
+        'family',
         'scientificName',
         'kingdom',
         'phylum',
@@ -120,7 +121,8 @@ class Doc:
         ET.SubElement(objects, "references")
         ET.SubElement(objects, "supplementary_files")
         ET.SubElement(objects, "figures")
-        ET.SubElement(objects, "tables")
+        tables = ET.SubElement(objects, "tables")
+
         ET.SubElement(objects, "endnotes")
         # Add citations
         ET.SubElement(self.root, "citations")
@@ -183,10 +185,15 @@ class Doc:
         # family are included - not possible as a tree but at least in order
         for taxon, occurence in self.occurences.items():
 
+            # if taxon != 'Amphitritides sp. 1':
+            #     continue
+
+            # print(taxon)
+
             if self.limit and count >= self.limit:
                 break
 
-            citation_id = None
+            citation_refs = []
             # Do we have figures for this taxon treatment?
 
             try:
@@ -194,16 +201,16 @@ class Doc:
             except (KeyError, TypeError):
                 pass
             else:
-                citation_id = self._add_figures(self.figures.get(tid))
+                citation_refs = self._add_figures(self.figures.get(tid))
 
             treatment = self._build_taxon_treatment(
-                taxon, occurence, citation_id)
+                taxon, occurence, citation_refs)
 
             taxon_treatments.append(treatment)
 
             count += 1
 
-    def _build_taxon_treatment(self, taxon, occurence, citation_id):
+    def _build_taxon_treatment(self, taxon, occurence, citation_refs):
 
         treatment = ET.Element('treatment')
 
@@ -225,14 +232,48 @@ class Doc:
         ET.SubElement(el, "value").text = 'Species'
         treatment_fields.append(el)
 
+        nomenclature = occurence.get('nomenclature')
+
+        # Use the specific epithet as species name
         el = ET.Element('species')
-        ET.SubElement(el, "value").text = taxon
+        ET.SubElement(el, "value").text = nomenclature.get('specificepithet')
         treatment_fields.append(el)
 
-        # for nomenclature_field, nomenclature_value in occurence['nomenclature'].items():
-        #     el = ET.Element(nomenclature_field)
-        #     ET.SubElement(el, "value").text = nomenclature_value
-        #     treatment_fields.append(el)
+        if occurence['nomenclature'].get('genus', None):
+            el = ET.Element('genus')
+            ET.SubElement(el, "value").text = occurence[
+                'nomenclature'].get('genus')
+
+            treatment_fields.append(el)
+
+        # print(nomenclature.get('specificepithet'))
+
+        if occurence['nomenclature'].get('scientificnameauthorship', None):
+            authorship = occurence[
+                'nomenclature'].get('scientificnameauthorship')
+            print(nomenclature)
+            print(authorship)
+            m = re.search(
+                r'([\w\-]+)[,\s]{0,2}([\d]{4})', authorship, re.IGNORECASE |
+                re.UNICODE)
+
+            try:
+                author = m.group(1)
+            except AttributeError:
+                pass
+            else:
+                taxon_authors_el = ET.Element('taxon_authors')
+                ET.SubElement(taxon_authors_el, "value").text = author
+                treatment_fields.append(el)
+
+            try:
+                year = m.group(2)
+            except AttributeError:
+                pass
+            else:
+                taxon_year_el = ET.Element('taxon_year')
+                ET.SubElement(taxon_year_el, "value").text = year
+                treatment_fields.append(el)
 
         # Add material fields
         materials = ET.SubElement(treatment, "materials")
@@ -257,19 +298,48 @@ class Doc:
                 occurence['species_description'].get('body')
             )
 
-            # if parsed_species_description.get('diagnosis', None):
-            #     treatment.append(
-            #         self._add_material_detail(
-            #             'diagnosis', parsed_species_description.get('diagnosis'))
-            #     )
-            if parsed_species_description.get('remarks', None):
-                if citation_id:
-                    print(citation_id)
-                    print('---')
+            if parsed_species_description.get('diagnosis', None):
                 treatment.append(
                     self._add_material_detail(
-                        'notes', '|||')
+                        'diagnosis', parsed_species_description.get('diagnosis'))
                 )
+
+            notes = parsed_species_description.get('remarks', [])
+
+            # FIXME: Just adding references to figures as text. BDJ does not
+            # support inline refs
+            if citation_refs:
+                notes.append(
+                    ' '.join(['[Fig. %s]' % ref for ref in citation_refs]))
+
+            treatment.append(
+                self._add_material_detail(
+                    'notes', notes)
+            )
+
+            # if citation_id:
+            #     material_detail_el=ET.Element('notes')
+            #     fields=ET.SubElement(material_detail_el, "fields")
+            #     el=ET.SubElement(fields, 'notes')
+            #     value_el=ET.SubElement(el, "value")
+            #     # ET.SubElement(value_el, "inline_citation",
+            #     # {'citation_id': str(citation_id)})
+
+            #     ET.SubElement(value_el, "p").text="Test"
+            #     ET.SubElement(value_el, "inline_citation", {
+            #                   'citation_id': str(citation_id)}).text='Fig 1'
+            #     ET.SubElement(value_el, "inline_citation", {
+            #                   'citation_id': '0'}).text='Fig 0'
+
+            #     treatment.append(material_detail_el)
+
+        # if citation_id:
+        #     print(citation_id)
+        #     print('---')
+        # treatment.append(
+        #     self._add_material_detail(
+        #         'notes', '|||')
+        # )
 
         return treatment
 
@@ -278,11 +348,13 @@ class Doc:
         material_detail_el = ET.Element(name)
         fields = ET.SubElement(material_detail_el, "fields")
         el = ET.SubElement(fields, name)
-        ET.SubElement(el, "value").text = value
+        value_el = ET.SubElement(el, "value")
+        for p in value:
+            ET.SubElement(value_el, "p").text = p
+
         return material_detail_el
 
-    @staticmethod
-    def _parse_species_description(species_description):
+    def _parse_species_description(self, species_description):
         # Parse species description, splitting into voucher diagnosis & remarks
         description_field_names = ['voucher', 'diagnosis', 'remarks']
         soup = BeautifulSoup(species_description, "html.parser")
@@ -290,7 +362,7 @@ class Doc:
         data = {}
 
         current_field = None
-        for p in soup.find_all("p"):
+        for el in soup.find_all(["p", "table"], recursive=False):
             # The body contains the taxonomy in headers at the top
             # Which needs to be stripped out, otherwise will duplicate data in
             # publication proper - so match the strong content
@@ -302,21 +374,34 @@ class Doc:
             # Loop through all of the strong tags, and see if it's voucher, diagnosis etc.,
             # If it is, then set the current field - used to key
 
-            for strong in p.find_all("strong"):
-                for description_field_name in description_field_names:
-                    fn = strong.getText().lower()
-                    fuzz_ratio = fuzz.partial_ratio(
-                        description_field_name, strong.getText().lower())
-                    if fuzz_ratio > 99:
-                        current_field = description_field_name
-                        p = p.getText().replace(str(strong), '')
+            if el.name == 'p':
+                for strong in el.find_all("strong"):
+                    for description_field_name in description_field_names:
+                        fn = strong.getText().lower()
+                        fuzz_ratio = fuzz.partial_ratio(
+                            description_field_name, strong.getText().lower())
+                        if fuzz_ratio > 99:
+                            current_field = description_field_name
+                            el = el.getText().replace(str(strong), '')
 
             if current_field:
-                data.setdefault(current_field, []).append(normalize(str(p)))
+                # Try and get just the text - but handle errors if we've all
+                # ready converted to string
+                try:
+                    if el.name == 'table':
+                        # FIXME: String encoding is buggered at this point
+                        table_id = self._add_table(str(el))
+                        el = '[Table. %s]' % table_id
+                    else:
+                        el = el.getText()
+                except AttributeError:
+                    pass
+                finally:
+                    el = normalize(el)
 
-        # Flatten the data values
-        data = {i: ''.join(j) for i, j in data.items()}
+                data.setdefault(current_field, []).append(el)
 
+        # print(data)
         return data
 
     def _add_checklists(self, checklists):
@@ -394,21 +479,35 @@ class Doc:
         ET.SubElement(el, "value").text = rank
         return checklist
 
+    def _add_table(self, table_str):
+
+        tables = self.root.find('objects/tables')
+
+        table_count = len(tables.findall('table'))
+        table_id = table_count + 1
+
+        table = ET.SubElement(tables, "table", {'id': str(table_id)})
+        table_fields = ET.SubElement(table, "fields")
+
+        table_caption = ET.SubElement(table_fields, "table_caption")
+        ET.SubElement(table_caption, "value").text = ""
+
+        table_editor = ET.SubElement(table_fields, "table_editor")
+        ET.SubElement(table_editor, "value").append(ET.fromstring(table_str))
+        return table_id
+
     def _add_figures(self, figures):
+        return []
 
         citations = self.root.find('citations')
-        citations_count = len(citations.findall('citation'))
-        # Every image needs a citation reference for it to be embedded
-        citation_id = citations_count + 1
-        citation_el = ET.SubElement(citations, 'citation', {
-            'id': str(citation_id)
-        })
 
         object_figures = self.root.find('objects/figures')
 
         # We need to specify an id, so lets find out how many
         # figures we've added, and then use count as identifier
-        figure_count = len(object_figures.findall('figure'))
+        figure_count = len(object_figures.findall('figure')) + 1
+
+        figure_refs = []
 
         for i, figure in enumerate(figures):
 
@@ -439,11 +538,16 @@ class Doc:
             # Add the figure element to the figures
             object_figures.append(figure_el)
 
+            # One citation per figure
+            citation_el = ET.SubElement(citations, 'citation', {
+                'id': str(figure_id)
+            })
             ET.SubElement(citation_el, "object_id").text = str(figure_id)
+            ET.SubElement(citation_el, "citation_type").text = 'figs'
 
-        ET.SubElement(citation_el, "citation_type").text = 'figs'
+            figure_refs.append(figure_id)
 
-        return citation_id
+        return figure_refs
 
     @property
     def xml(self):

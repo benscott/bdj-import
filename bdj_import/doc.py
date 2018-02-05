@@ -11,15 +11,19 @@ from collections import OrderedDict
 
 from bdj_import.api import API
 
-from bdj_import.lib.helpers import normalize, file_exists
+from bdj_import.lib.helpers import normalize, file_exists, prettify_html, ensure_list
 from bdj_import.lib.species_descriptions import SpeciesDescriptions
 from bdj_import.lib.figures import Figures
+
+
+from bdj_import.lib.data.species_occurences import SpeciesOccurences
 
 
 class Doc:
 
     nomenclature_fields = [
         'genus',
+        'family',
         'scientificNameAuthorship',
         'specificEpithet'
     ]
@@ -52,128 +56,148 @@ class Doc:
         'stateProvince',
     ]
 
-    def __init__(self, title, limit=None):
+    def __init__(self, title, limit=None, taxon=None):
         self.title = title
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
 
         self.root = ET.Element("document")
         self.limit = limit
+        self.taxon = taxon
 
-        self.figures = Figures('image-export.csv')
-
-        self.species_descriptions = SpeciesDescriptions(
-            'species-description-export.csv'
-        )
-
-        self.occurences = self._read_dwca_export_csv()
-
+        self.occurences = SpeciesOccurences()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
         # After the objects (general structure has been created), we can
         # add the dependent metadata and treatments
-        # self._add_metadata(article_metadata)
+        self._add_metadata()
         self._add_taxon_treatments()
-        # self._add_checklists(checklists)
+        # self._add_checklists()
 
     def _add_document_info(self):
         # Create document info
-        document_info = ET.SubElement(self.root, "document_info")
 
-        ET.SubElement(
-            document_info, "document_type").text = 'Taxonomic Paper'
-        ET.SubElement(
-            document_info, "journal_name").text = 'Biodiversity Data Journal'
+        document_info = self._add_elements(self.root, "document_info")
+        self._add_elements(document_info, "document_type", 'Taxonomic Paper')
+        self._add_elements(document_info, "journal_name",
+                           'Biodiversity Data Journal')
 
     def _add_authors(self):
         # Add authors
-        authors = ET.SubElement(self.root, "authors")
+        authors = self._add_elements(self.root, "authors")
+        # We don't have many elements with lots of attributes so lets use
+        # normal ET elements
         ET.SubElement(authors, "author", first_name='Ben',
                                last_name='Scott', co_author='1', email='b.scott@nhm.ac.uk', right='1', submitting_author='1')
 
-    def _add_metadata(self, article_metadata):
-        # Add authors
-        title_and_authors = ET.SubElement(
-            article_metadata, "title_and_authors")
+    def _add_metadata(self):
 
-        title_and_authors_fields = ET.SubElement(title_and_authors, "fields")
+        article_metadata = self.root.find('objects/article_metadata')
+        self._add_nested_elements(article_metadata, [
+            "title_and_authors",
+            "fields",
+            "title",
+            "value"
+        ]).text = self.title
 
-        el = ET.Element('title')
-        ET.SubElement(el, "value").text = self.title
-        title_and_authors_fields.append(el)
+    @staticmethod
+    def _add_elements(root, elements, text=None):
+        """
+        Add list of elements
+        Returns last element to be added
+        """
+        for element in ensure_list(elements):
+            el = ET.SubElement(root, element)
+        # If we have text, add it to the last element
+        if text:
+            el.text = text
+        return el
+
+    def _add_nested_elements(self, root, elements, text=None):
+        """
+        Recursively add elements
+        """
+        for element in ensure_list(elements):
+            root = self._add_elements(root, element)
+        # If we have text, add it to the last element
+        if text:
+            root.text = text
+        return root
 
     def _add_objects(self):
         # Add the main document objects - these are all required to pass document
         # validation
-        objects = ET.SubElement(self.root, "objects")
-        ET.SubElement(objects, "article_metadata")
-        ET.SubElement(objects, "introduction")
-        ET.SubElement(objects, "materials_and_methods")
-        ET.SubElement(objects, "data_resources")
-        ET.SubElement(objects, "taxon_treatments")
-        ET.SubElement(objects, "checklists")
-        ET.SubElement(objects, "identification_keys")
-        ET.SubElement(objects, "results")
-        ET.SubElement(objects, "discussion")
-        ET.SubElement(objects, "acknowledgements")
-        ET.SubElement(objects, "author_contributions")
-        ET.SubElement(objects, "references")
-        ET.SubElement(objects, "supplementary_files")
-        ET.SubElement(objects, "figures")
-        tables = ET.SubElement(objects, "tables")
+        objects = self._add_elements(self.root, "objects")
 
-        ET.SubElement(objects, "endnotes")
+        self._add_elements(objects, [
+            "article_metadata",
+            "introduction",
+            "materials_and_methods",
+            "data_resources",
+            "taxon_treatments",
+            "checklists",
+            "identification_keys",
+            "results",
+            "discussion",
+            "acknowledgements",
+            "author_contributions",
+            "references",
+            "supplementary_files",
+            "figures",
+            "tables",
+            "endnotes",
+        ])
         # Add citations
-        ET.SubElement(self.root, "citations")
+        self._add_elements(self.root, "citations")
 
-    def _read_dwca_export_csv(self):
-        voucher_specimens = OrderedDict()
-        fpath = os.path.join(self.data_dir, 'falklands-utf8.dwca.csv')
-        with open(fpath, 'r') as f:
-            reader = csv.DictReader(f)
-            count = 0
-            for row in reader:
-                # If this is a voucher specimen, we want to include it
-                # otherwise we'll skip it
-                type_status = row.get('typeStatus').strip()
+    # def _read_dwca_export_csv(self):
+    #     voucher_specimens = OrderedDict()
+    #     fpath = os.path.join(self.data_dir, 'falklands-utf8.dwca.csv')
+    #     with open(fpath, 'r') as f:
+    #         reader = csv.DictReader(f)
+    #         count = 0
+    #         for row in reader:
+    #             # If this is a voucher specimen, we want to include it
+    #             # otherwise we'll skip it
+    #             type_status = row.get('typeStatus').strip()
 
-                if type_status.lower() != 'voucher':
-                    continue
+    #             if type_status.lower() != 'voucher':
+    #                 continue
 
-                # Get the nomenclature fields
-                nomenclature = {k.lower(): v for k, v in row.items()
-                                if k in self.nomenclature_fields and v}
+    #             # Get the nomenclature fields
+    #             nomenclature = {k.lower(): v for k, v in row.items()
+    #                             if k in self.nomenclature_fields and v}
 
-                # Create a new entry for this taxon
-                normalized_taxon = normalize(row['taxonConceptID'])
-                voucher_specimens.setdefault(normalized_taxon, {
-                    'nomenclature': nomenclature,
-                    'materials': [],
-                    'species_description': None
-                })
+    #             # Create a new entry for this taxon
+    #             normalized_taxon = normalize(row['taxonConceptID'])
+    #             voucher_specimens.setdefault(normalized_taxon, {
+    #                 'nomenclature': nomenclature,
+    #                 'materials': [],
+    #                 'species_description': None
+    #             })
 
-                # If we don';t have the species description yet, try and add it
-                if not voucher_specimens[normalized_taxon]['species_description']:
+    #             # If we don';t have the species description yet, try and add it
+    # if not voucher_specimens[normalized_taxon]['species_description']:
 
-                    for fn in ['taxonConceptID', 'scientificName']:
-                        taxon = normalize(row.get(fn))
-                        try:
-                            voucher_specimens[normalized_taxon]['species_description'] = self.species_descriptions.get(
-                                taxon)
-                        except KeyError:
-                            continue
-                        else:
-                            break
+    #                 for fn in ['taxonConceptID', 'scientificName']:
+    #                     taxon = normalize(row.get(fn))
+    #                     try:
+    #                         voucher_specimens[normalized_taxon]['species_description'] = self.species_descriptions.get(
+    #                             taxon)
+    #                     except KeyError:
+    #                         continue
+    #                     else:
+    #                         break
 
-                # We only want certain fields included in the material details
-                # field
-                material_details = {k.lower(): v for k, v in row.items()
-                                    if k in self.material_fields and v}
+    #             # We only want certain fields included in the material details
+    #             # field
+    #             material_details = {k.lower(): v for k, v in row.items()
+    #                                 if k in self.material_fields and v}
 
-                voucher_specimens[taxon]['materials'].append(material_details)
+    #             voucher_specimens[taxon]['materials'].append(material_details)
 
-        return voucher_specimens
+    #     return voucher_specimens
 
     def _add_taxon_treatments(self):
 
@@ -183,371 +207,227 @@ class Doc:
 
         # As per Adrian's request, we want to structure the doc so
         # family are included - not possible as a tree but at least in order
-        for taxon, occurence in self.occurences.items():
-
-            # if taxon != 'Amphitritides sp. 1':
-            #     continue
-
-            # print(taxon)
-
+        for taxon, occurence in self.occurences.vouchers():
             if self.limit and count >= self.limit:
                 break
+            if self.taxon and taxon != self.taxon:
+                continue
 
-            citation_refs = []
-            # Do we have figures for this taxon treatment?
-
-            try:
-                tid = occurence['species_description']['tid']
-            except (KeyError, TypeError):
-                pass
-            else:
-                citation_refs = self._add_figures(self.figures.get(tid))
-
-            treatment = self._build_taxon_treatment(
-                taxon, occurence, citation_refs)
-
+            treatment = self._build_taxon_treatment(taxon, occurence)
             taxon_treatments.append(treatment)
 
             count += 1
 
-    def _build_taxon_treatment(self, taxon, occurence, citation_refs):
+    def _build_taxon_treatment(self, taxon, occurence):
 
-        treatment = ET.Element('treatment')
+        # citation_refs = None
 
-        # Add taxonomy fields
-        treatment_fields = ET.SubElement(treatment, "fields")
+        # # Add the figures
+        # if occurence.get('figures', None):
+        #     citation_refs = self._add_figures(
+        #         occurence.get('figures'))
 
-        el = ET.Element('classification')
-        ET.SubElement(el, "value").text = taxon
+        treatment_el = ET.Element('treatment')
 
-        treatment_fields.append(el)
+        treatment_fields_el = self._add_elements(
+            treatment_el, 'fields'
+        )
 
-        el = ET.Element('type_of_treatment')
-        # FIXME
-        ET.SubElement(
-            el, "value").text = 'Redescription or species observation'
-        treatment_fields.append(el)
+        self._add_nested_elements(treatment_fields_el,
+                                  ['classification', 'value'], taxon)
+        self._add_nested_elements(treatment_fields_el,
+                                  ['type_of_treatment', 'value'],
+                                  'Redescription or species observation'
+                                  )
 
-        el = ET.Element('rank')
-        ET.SubElement(el, "value").text = 'Species'
-        treatment_fields.append(el)
+        self._add_nested_elements(
+            treatment_fields_el, ['rank', 'value'], 'Species')
 
-        nomenclature = occurence.get('nomenclature')
+        if occurence.get('specificepithet', None):
+            self._add_nested_elements(treatment_fields_el, [
+                'species', 'value'], occurence['specificepithet'])
 
-        # Use the specific epithet as species name
-        el = ET.Element('species')
-        ET.SubElement(el, "value").text = nomenclature.get('specificepithet')
-        treatment_fields.append(el)
+        if occurence.get('genus', None):
+            self._add_nested_elements(treatment_fields_el, [
+                'genus', 'value'], occurence['genus'])
 
-        if occurence['nomenclature'].get('genus', None):
-            el = ET.Element('genus')
-            ET.SubElement(el, "value").text = occurence[
-                'nomenclature'].get('genus')
+        authorship = occurence.get('scientificnameauthorship', None)
 
-            treatment_fields.append(el)
-
-        # print(nomenclature.get('specificepithet'))
-
-        if occurence['nomenclature'].get('scientificnameauthorship', None):
-            authorship = occurence[
-                'nomenclature'].get('scientificnameauthorship')
-            print(nomenclature)
-            print(authorship)
-            m = re.search(
-                r'([\w\-]+)[,\s]{0,2}([\d]{4})', authorship, re.IGNORECASE |
-                re.UNICODE)
-
-            try:
-                author = m.group(1)
-            except AttributeError:
-                pass
-            else:
-                taxon_authors_el = ET.Element('taxon_authors')
-                ET.SubElement(taxon_authors_el, "value").text = author
-                treatment_fields.append(el)
-
-            try:
-                year = m.group(2)
-            except AttributeError:
-                pass
-            else:
-                taxon_year_el = ET.Element('taxon_year')
-                ET.SubElement(taxon_year_el, "value").text = year
-                treatment_fields.append(el)
+        if authorship and occurence['specificepithet'] != 'sp.':
+            self._add_nested_elements(treatment_fields_el, [
+                'taxon_authors', 'value'], authorship)
 
         # Add material fields
-        materials = ET.SubElement(treatment, "materials")
+        materials_el = ET.SubElement(treatment_el, "materials")
 
         for material in occurence.get('materials'):
-
-            material_el = ET.SubElement(materials, "material")
-            material_fields = ET.SubElement(material_el, "fields")
-
-            el = ET.Element('type_status')
-            ET.SubElement(el, "value").text = 'Other material'
-            material_fields.append(el)
+            material_fields_el = self._add_nested_elements(
+                materials_el, ['material', 'fields']
+            )
+            self._add_nested_elements(
+                material_fields_el, ['type_status', 'value'], 'Other material')
 
             for fn, value in material.items():
-                el = ET.Element(fn)
-                ET.SubElement(el, "value").text = value
-                material_fields.append(el)
+                self._add_nested_elements(
+                    material_fields_el, [fn, 'value'], value)
 
-        if occurence.get('species_description'):
+        notes = []
+        # TODO: Add images at this point
+        figures = occurence.get('figures', [])
+        if figures:
+            for figure in figures:
+                citation_ref = self._add_figure(figure)
 
-            parsed_species_description = self._parse_species_description(
-                occurence['species_description'].get('body')
-            )
-
-            if parsed_species_description.get('diagnosis', None):
-                treatment.append(
-                    self._add_material_detail(
-                        'diagnosis', parsed_species_description.get('diagnosis'))
+                notes.append(
+                    self._soup_el('<p>[Figure {}]</p>', citation_ref)
                 )
 
-            notes = parsed_species_description.get('remarks', [])
+        if occurence.get('species_description'):
+            voucher_fields = occurence['species_description'].voucher_fields
 
-            # FIXME: Just adding references to figures as text. BDJ does not
-            # support inline refs
-            if citation_refs:
-                notes.append(
-                    ' '.join(['[Fig. %s]' % ref for ref in citation_refs]))
+            # If we have actual notes, append them to the start of the notes array
+            # So any image references above float to the bottom
+            notes = voucher_fields.get('remarks', []) + notes
 
-            treatment.append(
-                self._add_material_detail(
-                    'notes', notes)
-            )
+            if occurence['species_description'].tables:
+                for table in occurence['species_description'].tables:
+                    citation_ref = self._add_table(table)
+                    notes.append(
+                        self._soup_el('<p>[Table {}]</p>', citation_ref)
+                    )
 
-            # if citation_id:
-            #     material_detail_el=ET.Element('notes')
-            #     fields=ET.SubElement(material_detail_el, "fields")
-            #     el=ET.SubElement(fields, 'notes')
-            #     value_el=ET.SubElement(el, "value")
-            #     # ET.SubElement(value_el, "inline_citation",
-            #     # {'citation_id': str(citation_id)})
+            if voucher_fields.get('diagnosis', None):
+                self._add_material_detail(treatment_el,
+                                          'diagnosis', voucher_fields['diagnosis'])
 
-            #     ET.SubElement(value_el, "p").text="Test"
-            #     ET.SubElement(value_el, "inline_citation", {
-            #                   'citation_id': str(citation_id)}).text='Fig 1'
-            #     ET.SubElement(value_el, "inline_citation", {
-            #                   'citation_id': '0'}).text='Fig 0'
+        if notes:
+            self._add_material_detail(treatment_el, 'notes', notes)
 
-            #     treatment.append(material_detail_el)
+        return treatment_el
 
-        # if citation_id:
-        #     print(citation_id)
-        #     print('---')
-        # treatment.append(
-        #     self._add_material_detail(
-        #         'notes', '|||')
-        # )
-
-        return treatment
+    def _add_material_detail(self, root, element_name, paragraphs):
+        el = self._add_nested_elements(
+            root, [element_name, 'fields', element_name, 'value'])
+        for p in paragraphs:
+            self._add_elements(el, 'p', normalize(p.getText()))
 
     @staticmethod
-    def _add_material_detail(name, value):
-        material_detail_el = ET.Element(name)
-        fields = ET.SubElement(material_detail_el, "fields")
-        el = ET.SubElement(fields, name)
-        value_el = ET.SubElement(el, "value")
-        for p in value:
-            ET.SubElement(value_el, "p").text = p
+    def _soup_el(html, vars):
+        return BeautifulSoup(html.format(vars), "html.parser")
 
-        return material_detail_el
+    def _add_checklists(self):
 
-    def _parse_species_description(self, species_description):
-        # Parse species description, splitting into voucher diagnosis & remarks
-        description_field_names = ['voucher', 'diagnosis', 'remarks']
-        soup = BeautifulSoup(species_description, "html.parser")
-        # Create a data dict, keyed by the description field name
-        data = {}
-
-        current_field = None
-        for el in soup.find_all(["p", "table"], recursive=False):
-            # The body contains the taxonomy in headers at the top
-            # Which needs to be stripped out, otherwise will duplicate data in
-            # publication proper - so match the strong content
-            # If we match on classification, we end up stripping out content from later in the
-            # process e.g. tables with taxonomy in the description
-            # instead we wait until the first paragraph matching Voucher, Diagnosis or Remarks
-            # and discard all previous paragraphs
-
-            # Loop through all of the strong tags, and see if it's voucher, diagnosis etc.,
-            # If it is, then set the current field - used to key
-
-            if el.name == 'p':
-                for strong in el.find_all("strong"):
-                    for description_field_name in description_field_names:
-                        fn = strong.getText().lower()
-                        fuzz_ratio = fuzz.partial_ratio(
-                            description_field_name, strong.getText().lower())
-                        if fuzz_ratio > 99:
-                            current_field = description_field_name
-                            el = el.getText().replace(str(strong), '')
-
-            if current_field:
-                # Try and get just the text - but handle errors if we've all
-                # ready converted to string
-                try:
-                    if el.name == 'table':
-                        # FIXME: String encoding is buggered at this point
-                        table_id = self._add_table(str(el))
-                        el = '[Table. %s]' % table_id
-                    else:
-                        el = el.getText()
-                except AttributeError:
-                    pass
-                finally:
-                    el = normalize(el)
-
-                data.setdefault(current_field, []).append(el)
-
-        # print(data)
-        return data
-
-    def _add_checklists(self, checklists):
         count = 0
-        for family, taxa in self.classification.items():
+        checklists = self.root.find('objects/checklists')
+        checklist = ET.SubElement(checklists, 'checklist')
 
-            # checklist = ET.Element('checklist')
+        # Add taxonomy fields
+        checklist_fields = ET.SubElement(checklist, "fields")
+        classification_el = ET.SubElement(checklist_fields, 'classification')
+        ET.SubElement(classification_el, "value").text = 'Lumbrineridae'
 
-            # # Add taxonomy fields
-            # checklist_fields = ET.SubElement(checklist, "fields")
+        title_el = ET.SubElement(checklist_fields, 'title')
+        ET.SubElement(title_el, "value").text = 'Classification'
 
-            # el = ET.Element('classification')
-            # ET.SubElement(el, "value").text = family
-            # checklist_fields.append(el)
-
-            # el = ET.Element('title')
-            # ET.SubElement(el, "value").text = family
-            # checklist_fields.append(el)
-
-            # checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
-
-            # # Add taxonomy fields
-            # checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
-
-            # el = ET.Element('taxon_authors_and_year')
-            # ET.SubElement(el, "value").text = family
-
-            # checklist_taxon_fields.append(el)
-
-            # el = ET.Element('rank')
-            # ET.SubElement(el, "value").text = 'family'
-
-            # checklist_taxon_fields.append(el)
-            # checklists.append(checklist)
+        for family, taxa in self._taxonomic_tree.items():
+            if self.limit and count >= self.limit:
+                break
 
             checklist_el = self._build_checklist(family, 'family')
-            checklists.append(checklist_el)
+            checklist.append(checklist_el)
 
-            for taxon_name, taxon in taxa.items():
-                checklist_el = self._build_checklist(
-                    taxon_name, 'family', **taxon.get('taxon_name'))
-                # checklists.append(checklist_el)
+            species_description = self.species_descriptions.get(family)
 
-            if count and count >= self.limit:
-                break
+            if species_description:
+                taxon_notes_el = ET.SubElement(checklist_el, "taxon_notes")
+                taxon_notes_field_el = ET.SubElement(taxon_notes_el, "fields")
+                notes_el = ET.SubElement(taxon_notes_field_el, "notes")
+                notes_value_el = ET.SubElement(notes_el, "value")
+                body_str = prettify_html(species_description.get('body'))
+                notes_value_el.append(ET.fromstring(body_str))
+                # Add notes
+                for taxon in taxa:
+                    checklist_el = self._build_checklist(taxon, 'species')
+                    checklist.append(checklist_el)
 
             count += 1
 
     @staticmethod
-    def _build_checklist(taxon_name, rank, **kwargs):
-        checklist = ET.Element('checklist')
+    def _build_checklist(taxon, rank):
 
-        # Add taxonomy fields
-        checklist_fields = ET.SubElement(checklist, "fields")
-
-        el = ET.Element('classification')
-        ET.SubElement(el, "value").text = taxon_name
-        checklist_fields.append(el)
-
-        el = ET.Element('title')
-        ET.SubElement(el, "value").text = taxon_name
-        checklist_fields.append(el)
-
-        checklist_taxon = ET.SubElement(checklist, 'checklist_taxon')
+        checklist_taxon = ET.Element('checklist_taxon')
 
         # Add taxonomy fields
         checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
 
-        # if kwargs.get('taxon_authors', None):
-        #     el = ET.Element('taxon_authors_and_year')
-        #     ET.SubElement(el, "value").text = kwargs.get('taxon_authors')
-        #     checklist_taxon_fields.append(el)
-
         el = ET.Element('rank')
         ET.SubElement(el, "value").text = rank
-        return checklist
+        checklist_taxon_fields.append(el)
 
-    def _add_table(self, table_str):
+        el = ET.Element(rank)
+        ET.SubElement(el, "value").text = taxon
+        checklist_taxon_fields.append(el)
 
-        tables = self.root.find('objects/tables')
+        return checklist_taxon
 
-        table_count = len(tables.findall('table'))
+    def _add_table(self, table):
+
+        object_tables = self.root.find('objects/tables')
+
+        table_count = len(object_tables.findall('table'))
         table_id = table_count + 1
 
-        table = ET.SubElement(tables, "table", {'id': str(table_id)})
-        table_fields = ET.SubElement(table, "fields")
+        table_el = ET.SubElement(object_tables, "table", {'id': str(table_id)})
+        table_fields = ET.SubElement(table_el, "fields")
 
-        table_caption = ET.SubElement(table_fields, "table_caption")
-        ET.SubElement(table_caption, "value").text = ""
+        self._add_nested_elements(table_fields, ['table_caption', 'value'])
+        self._add_nested_elements(
+            table_fields, ['table_editor', 'value']).append(
+                ET.fromstring(str(table.prettify()))
+        )
+        return self._add_citation(table_id, 'tables')
 
-        table_editor = ET.SubElement(table_fields, "table_editor")
-        ET.SubElement(table_editor, "value").append(ET.fromstring(table_str))
-        return table_id
+    def _add_figure(self, figure):
 
-    def _add_figures(self, figures):
-        return []
-
-        citations = self.root.find('citations')
+        # Check path is accessible
+        if not file_exists(figure['path']):
+            return
 
         object_figures = self.root.find('objects/figures')
 
         # We need to specify an id, so lets find out how many
         # figures we've added, and then use count as identifier
-        figure_count = len(object_figures.findall('figure')) + 1
+        figure_id = len(object_figures.findall('figure')) + 1
 
-        figure_refs = []
+        figure_el = ET.Element('figure', {'id': str(figure_id)})
+        self._add_nested_elements(
+            figure_el, ['fields', 'figure_type', 'value']).text = 'Image'
+        image_fields = self._add_nested_elements(
+            figure_el, ['image', 'fields'])
+        self._add_nested_elements(
+            image_fields, ['figure_caption', 'value']).text = figure['description']
+        self._add_nested_elements(
+            image_fields, ['image_url', 'value']).text = figure['path']
 
-        for i, figure in enumerate(figures):
+        # Add the figure element to the figures
+        object_figures.append(figure_el)
+        return self._add_citation(figure_id, 'figs')
 
-            # Check path is accessible
-            if not file_exists(figure['path']):
-                continue
+    def _add_citation(self, object_id, citation_type):
+        """
+        Add a citation referenceG
+        """
+        citations_el = self.root.find('citations')
+        # We need to specify an id, so count how many we have and iterate one
+        citation_id = len(citations_el.findall('citation')) + 1
 
-            figure_id = figure_count + i
-            figure_el = ET.Element('figure', {'id': str(figure_id)})
-
-            # Add figure fields
-            figure_fields = ET.SubElement(figure_el, "fields")
-            figure_type = ET.SubElement(figure_fields, 'figure_type')
-            ET.SubElement(figure_type, "value").text = 'Image'
-
-            # Add figure fields
-            image = ET.SubElement(figure_el, "image")
-            image_fields = ET.SubElement(image, "fields")
-            # Add image caption
-            figure_caption = ET.SubElement(image_fields, 'figure_caption')
-            ET.SubElement(figure_caption, "value").text = figure.get(
-                'description', None
-            )
-            # And image URL
-            image_url = ET.SubElement(image_fields, 'image_url')
-            ET.SubElement(image_url, "value").text = figure['path']
-
-            # Add the figure element to the figures
-            object_figures.append(figure_el)
-
-            # One citation per figure
-            citation_el = ET.SubElement(citations, 'citation', {
-                'id': str(figure_id)
-            })
-            ET.SubElement(citation_el, "object_id").text = str(figure_id)
-            ET.SubElement(citation_el, "citation_type").text = 'figs'
-
-            figure_refs.append(figure_id)
-
-        return figure_refs
+        # One citation per figure
+        citation_el = ET.SubElement(citations_el, 'citation', {
+            'id': str(citation_id)
+        })
+        self._add_elements(citation_el, ['object_id'], str(object_id))
+        self._add_elements(citation_el, ['citation_type'], citation_type)
+        return citation_id
 
     @property
     def xml(self):

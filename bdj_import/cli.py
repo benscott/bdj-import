@@ -12,10 +12,11 @@ from bdj_import.doc import Doc
 @click.option('--console', 'output', flag_value='console')
 @click.option('--file', 'output', flag_value='file')
 @click.option('--bdj', 'output', flag_value='bdj')
-def main(limit, validate, output):
+@click.option('--taxon', default=None, help='Specific taxon.')
+def main(limit, validate, output, taxon):
 
     response = None
-    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit)
+    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit, None)
     api = API()
 
     if validate and not output == 'bdj':

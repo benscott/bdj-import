@@ -16,7 +16,7 @@ from bdj_import.doc import Doc
 def main(limit, validate, output, taxon):
 
     response = None
-    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit, None)
+    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit, taxon)
     api = API()
 
     if validate and not output == 'bdj':

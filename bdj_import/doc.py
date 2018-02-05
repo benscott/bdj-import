@@ -16,13 +16,14 @@ from bdj_import.lib.species_descriptions import SpeciesDescriptions
 from bdj_import.lib.figures import Figures
 
 
-from bdj_import.lib.data.species_occurences import SpeciesOccurences
+from bdj_import.lib.species_occurences import SpeciesOccurences
 
 
 class Doc:
 
     nomenclature_fields = [
         'genus',
+        'subgenus',
         'family',
         'scientificNameAuthorship',
         'specificEpithet'
@@ -73,7 +74,7 @@ class Doc:
         # add the dependent metadata and treatments
         self._add_metadata()
         self._add_taxon_treatments()
-        # self._add_checklists()
+        self._add_checklists()
 
     def _add_document_info(self):
         # Create document info
@@ -151,67 +152,22 @@ class Doc:
         # Add citations
         self._add_elements(self.root, "citations")
 
-    # def _read_dwca_export_csv(self):
-    #     voucher_specimens = OrderedDict()
-    #     fpath = os.path.join(self.data_dir, 'falklands-utf8.dwca.csv')
-    #     with open(fpath, 'r') as f:
-    #         reader = csv.DictReader(f)
-    #         count = 0
-    #         for row in reader:
-    #             # If this is a voucher specimen, we want to include it
-    #             # otherwise we'll skip it
-    #             type_status = row.get('typeStatus').strip()
-
-    #             if type_status.lower() != 'voucher':
-    #                 continue
-
-    #             # Get the nomenclature fields
-    #             nomenclature = {k.lower(): v for k, v in row.items()
-    #                             if k in self.nomenclature_fields and v}
-
-    #             # Create a new entry for this taxon
-    #             normalized_taxon = normalize(row['taxonConceptID'])
-    #             voucher_specimens.setdefault(normalized_taxon, {
-    #                 'nomenclature': nomenclature,
-    #                 'materials': [],
-    #                 'species_description': None
-    #             })
-
-    #             # If we don';t have the species description yet, try and add it
-    # if not voucher_specimens[normalized_taxon]['species_description']:
-
-    #                 for fn in ['taxonConceptID', 'scientificName']:
-    #                     taxon = normalize(row.get(fn))
-    #                     try:
-    #                         voucher_specimens[normalized_taxon]['species_description'] = self.species_descriptions.get(
-    #                             taxon)
-    #                     except KeyError:
-    #                         continue
-    #                     else:
-    #                         break
-
-    #             # We only want certain fields included in the material details
-    #             # field
-    #             material_details = {k.lower(): v for k, v in row.items()
-    #                                 if k in self.material_fields and v}
-
-    #             voucher_specimens[taxon]['materials'].append(material_details)
-
-    #     return voucher_specimens
-
     def _add_taxon_treatments(self):
 
         taxon_treatments = self.root.find('objects/taxon_treatments')
-
         count = 0
 
         # As per Adrian's request, we want to structure the doc so
         # family are included - not possible as a tree but at least in order
         for taxon, occurence in self.occurences.vouchers():
+
             if self.limit and count >= self.limit:
                 break
             if self.taxon and taxon != self.taxon:
                 continue
+
+            # print(occurence)
+            print('---')
 
             treatment = self._build_taxon_treatment(taxon, occurence)
             taxon_treatments.append(treatment)
@@ -220,15 +176,7 @@ class Doc:
 
     def _build_taxon_treatment(self, taxon, occurence):
 
-        # citation_refs = None
-
-        # # Add the figures
-        # if occurence.get('figures', None):
-        #     citation_refs = self._add_figures(
-        #         occurence.get('figures'))
-
         treatment_el = ET.Element('treatment')
-
         treatment_fields_el = self._add_elements(
             treatment_el, 'fields'
         )
@@ -250,6 +198,12 @@ class Doc:
         if occurence.get('genus', None):
             self._add_nested_elements(treatment_fields_el, [
                 'genus', 'value'], occurence['genus'])
+
+        if occurence.get('subgenus', None):
+            # Replace any parenthesis
+            subgenus = re.sub(r'\(|\)', '', occurence['subgenus'])
+            self._add_nested_elements(treatment_fields_el, [
+                'subgenus', 'value'], subgenus)
 
         authorship = occurence.get('scientificnameauthorship', None)
 
@@ -288,13 +242,9 @@ class Doc:
             # If we have actual notes, append them to the start of the notes array
             # So any image references above float to the bottom
             notes = voucher_fields.get('remarks', []) + notes
-
-            if occurence['species_description'].tables:
-                for table in occurence['species_description'].tables:
-                    citation_ref = self._add_table(table)
-                    notes.append(
-                        self._soup_el('<p>[Table {}]</p>', citation_ref)
-                    )
+            table_refs = self._extract_tables(
+                occurence.get('species_description'))
+            notes += table_refs
 
             if voucher_fields.get('diagnosis', None):
                 self._add_material_detail(treatment_el,
@@ -318,57 +268,63 @@ class Doc:
     def _add_checklists(self):
 
         count = 0
-        checklists = self.root.find('objects/checklists')
-        checklist = ET.SubElement(checklists, 'checklist')
+        checklists_el = self.root.find('objects/checklists')
+        # Create a checklist for Polychaeta
 
-        # Add taxonomy fields
-        checklist_fields = ET.SubElement(checklist, "fields")
-        classification_el = ET.SubElement(checklist_fields, 'classification')
-        ET.SubElement(classification_el, "value").text = 'Lumbrineridae'
+        checklist_el = self._add_elements(
+            checklists_el, ['checklist'])
 
-        title_el = ET.SubElement(checklist_fields, 'title')
-        ET.SubElement(title_el, "value").text = 'Classification'
+        checklist_fields_el = self._add_elements(
+            checklist_el, ['fields'])
 
-        for family, taxa in self._taxonomic_tree.items():
+        self._add_nested_elements(
+            checklist_fields_el, ['classification', 'value'], 'Polychaeta')
+
+        self._add_nested_elements(
+            checklist_fields_el, ['title', 'value'], 'Polychaeta')
+
+        for family_name, family in self.occurences.tree.items():
+
             if self.limit and count >= self.limit:
                 break
 
-            checklist_el = self._build_checklist(family, 'family')
-            checklist.append(checklist_el)
+            table_refs = self._extract_tables(family['species_description'])
+            notes = family['species_description'].body + table_refs
 
-            species_description = self.species_descriptions.get(family)
+            params = {
+                'taxon': family['species_description'].scientific_name,
+                'rank': 'family',
+                'notes': notes,
+            }
 
-            if species_description:
-                taxon_notes_el = ET.SubElement(checklist_el, "taxon_notes")
-                taxon_notes_field_el = ET.SubElement(taxon_notes_el, "fields")
-                notes_el = ET.SubElement(taxon_notes_field_el, "notes")
-                notes_value_el = ET.SubElement(notes_el, "value")
-                body_str = prettify_html(species_description.get('body'))
-                notes_value_el.append(ET.fromstring(body_str))
-                # Add notes
-                for taxon in taxa:
-                    checklist_el = self._build_checklist(taxon, 'species')
-                    checklist.append(checklist_el)
+            # FIXME: Abstract adding tables.
+            self._add_checklist_taxon(checklist_el, **params)
+
+            for voucher_taxon, voucher in family['vouchers'].items():
+                self._add_checklist_taxon(
+                    checklist_el, taxon=voucher_taxon, rank='species')
 
             count += 1
 
-    @staticmethod
-    def _build_checklist(taxon, rank):
+    def _add_checklist_taxon(self, root, taxon, rank, notes=None):
+        el = self._add_elements(root, ['checklist_taxon'])
+        el_fields = self._add_elements(el, ['fields'])
+        self._add_nested_elements(el_fields, ['rank', 'value'], rank)
+        self._add_nested_elements(el_fields, [rank, 'value'], taxon)
+        if notes:
+            el_notes = self._add_nested_elements(
+                el, ['taxon_notes', 'fields', 'notes', 'value'])
+            for p in notes:
+                self._add_elements(el_notes, 'p', normalize(p.getText()))
 
-        checklist_taxon = ET.Element('checklist_taxon')
+        return el
 
-        # Add taxonomy fields
-        checklist_taxon_fields = ET.SubElement(checklist_taxon, "fields")
-
-        el = ET.Element('rank')
-        ET.SubElement(el, "value").text = rank
-        checklist_taxon_fields.append(el)
-
-        el = ET.Element(rank)
-        ET.SubElement(el, "value").text = taxon
-        checklist_taxon_fields.append(el)
-
-        return checklist_taxon
+    def _extract_tables(self, species_description):
+        refs = []
+        for table in species_description.tables:
+            citation_ref = self._add_table(table)
+            refs.append(self._soup_el('<p>[Table {}]</p>', citation_ref))
+        return refs
 
     def _add_table(self, table):
 

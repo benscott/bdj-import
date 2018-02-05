@@ -159,15 +159,12 @@ class Doc:
 
         # As per Adrian's request, we want to structure the doc so
         # family are included - not possible as a tree but at least in order
-        for taxon, occurence in self.occurences.vouchers():
+        for taxon, occurence in self.occurences.items():
 
             if self.limit and count >= self.limit:
                 break
             if self.taxon and taxon != self.taxon:
                 continue
-
-            # print(occurence)
-            print('---')
 
             treatment = self._build_taxon_treatment(taxon, occurence)
             taxon_treatments.append(treatment)

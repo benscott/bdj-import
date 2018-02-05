@@ -15,7 +15,7 @@ from bdj_import.lib.figures import Figures
 
 class SpeciesOccurences():
 
-    occurences = OrderedDict()
+    _occurences = OrderedDict()
 
     occurence_fields = [
         'subgenus',
@@ -50,7 +50,7 @@ class SpeciesOccurences():
         'fieldNotes',
         'individualCount',
         'preparations',
-        'catalogueNumber',
+        'catalogNumber',
         'taxonConceptID',
         'country',
         'stateProvince',
@@ -61,30 +61,42 @@ class SpeciesOccurences():
         self.figures = Figures()
         self._parse_data()
 
-    def vouchers(self):
-        # If this is a voucher specimen, we want to include it
-        # otherwise we'll skip it
-        for taxon, occurence in self.occurences.items():
-            if self._is_voucher(occurence):
-                yield taxon, occurence
+    def __iter__(self):
+        return iter(self._occurences)
 
-    @staticmethod
-    def _is_voucher(occurence):
-        type_status = occurence.get('typestatus')
-        return type_status and type_status.lower() == 'voucher'
+    def keys(self):
+        return self._occurences.keys()
+
+    def items(self):
+        return self._occurences.items()
+
+    def values(self):
+        return self._occurences.values()
+
+    # def vouchers(self):
+    #     # If this is a voucher specimen, we want to include it
+    #     # otherwise we'll skip it
+    #     for taxon, occurence in self.occurences.items():
+    #         if self._is_voucher(occurence):
+    #             yield taxon, occurence
+
+    # @staticmethod
+    # def _is_voucher(occurence):
+    #     type_status = occurence.get('typestatus')
+    #     return type_status and type_status.lower() == 'voucher'
 
     @property
     def tree(self):
         tree = {}
-        for taxon, occurence in self.occurences.items():
-            if self._is_voucher(occurence):
-                family = occurence.get('family')
-                if family not in tree:
-                    tree[family] = {
-                        'vouchers': OrderedDict(),
-                        'species_description': self.species_descriptions[family]
-                    }
-                tree[family]['vouchers'][taxon] = occurence
+        for taxon, occurence in self.items():
+            # if self._is_voucher(occurence):
+            family = occurence.get('family')
+            if family not in tree:
+                tree[family] = {
+                    'vouchers': OrderedDict(),
+                    'species_description': self.species_descriptions[family]
+                }
+            tree[family]['vouchers'][taxon] = occurence
         return SortedDict(tree)
 
     def _parse_data(self):
@@ -92,34 +104,30 @@ class SpeciesOccurences():
 
         for row in dwca:
 
-            occurence = {
-                k.lower(): normalize(v) for k, v in row.items() if k in self.occurence_fields and v
-            }
+            # We are only interested in
+            type_status = row.get('typeStatus', None)
+            if type_status and type_status.lower() == 'voucher':
 
-            if not self._is_voucher(occurence):
-                continue
+                normalized_taxon = normalize(row['taxonConceptID'])
+                try:
+                    self._occurences[normalized_taxon]
+                except KeyError:
+                    self._occurences[normalized_taxon] = {
+                        k.lower(): normalize(v) for k, v in row.items() if k in self.occurence_fields and v
+                    }
+                    # Add the species description
+                    self._occurences[normalized_taxon][
+                        'species_description'] = self.species_descriptions[normalized_taxon]
 
-            normalized_taxon = normalize(row['taxonConceptID'])
-            try:
-                self.occurences[normalized_taxon]
-            except KeyError:
+                    # Add figures
+                    if self._occurences[normalized_taxon]['species_description']:
+                        tid = self._occurences[normalized_taxon][
+                            'species_description'].tid
+                        self._occurences[normalized_taxon][
+                            'figures'] = self.figures[tid]
 
-                self.occurences[normalized_taxon] = {
-                    k.lower(): normalize(v) for k, v in row.items() if k in self.occurence_fields anv
-                }
-                # Add the species description
-                self.occurences[normalized_taxon][
-                    'species_description'] = self.species_descriptions[normalized_taxon]
-
-                # Add figures
-                if self.occurences[normalized_taxon]['species_description']:
-                    tid = self.occurences[normalized_taxon][
-                        'species_description'].tid
-                    self.occurences[normalized_taxon][
-                        'figures'] = self.figures[tid]
-
-            finally:
-                # Add material details
-                self.occurences[normalized_taxon].setdefault('materials', []).append({
-                    k.lower(): v for k, v in row.items() if k in self.material_fields and v
-                })
+                finally:
+                    # Add material details
+                    self._occurences[normalized_taxon].setdefault('materials', []).append({
+                        k.lower(): v for k, v in row.items() if k in self.material_fields and v
+                    })

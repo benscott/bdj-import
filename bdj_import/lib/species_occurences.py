@@ -73,30 +73,22 @@ class SpeciesOccurences():
     def values(self):
         return self._occurences.values()
 
-    # def vouchers(self):
-    #     # If this is a voucher specimen, we want to include it
-    #     # otherwise we'll skip it
-    #     for taxon, occurence in self.occurences.items():
-    #         if self._is_voucher(occurence):
-    #             yield taxon, occurence
-
-    # @staticmethod
-    # def _is_voucher(occurence):
-    #     type_status = occurence.get('typestatus')
-    #     return type_status and type_status.lower() == 'voucher'
-
     @property
     def tree(self):
         tree = {}
         for taxon, occurence in self.items():
-            # if self._is_voucher(occurence):
             family = occurence.get('family')
             if family not in tree:
                 tree[family] = {
-                    'vouchers': OrderedDict(),
+                    # Don't need to sort  -  _occurences is already sorted
+                    # alphabetically
+                    'taxa': [],
                     'species_description': self.species_descriptions[family]
                 }
-            tree[family]['vouchers'][taxon] = occurence
+            # We're only using taxon concept id - do we want to include
+            # family & genus at this point?
+            tree[family]['taxa'].append(taxon)
+
         return SortedDict(tree)
 
     def _parse_data(self):

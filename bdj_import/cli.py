@@ -7,16 +7,16 @@ from bdj_import.doc import Doc
 
 
 @click.command()
-@click.option('--limit', default=None, help='Number of classifications.', type=int)
-@click.option('--validate', is_flag=True)
-@click.option('--console', 'output', flag_value='console')
-@click.option('--file', 'output', flag_value='file')
-@click.option('--bdj', 'output', flag_value='bdj')
-@click.option('--taxon', default=None, help='Specific taxon.')
-def main(limit, validate, output, taxon):
+@click.option('--limit', '-l', default=None, help='Number of classifications.', type=int)
+@click.option('--validate', '-v', is_flag=True)
+@click.option('--skip-images', '-i', is_flag=True, help="Do not import images - useful for testing.")
+@click.option('--output', '-o', default=None, type=click.Choice(['console', 'file', 'bdj']))
+@click.option('--taxon', '-t', default=None, help='Specific taxon.')
+def main(limit, validate, output, taxon, skip_images):
 
     response = None
-    doc = Doc('Marine Fauna and Flora of the Falkland Islands', limit, taxon)
+    doc = Doc('Marine Fauna and Flora of the Falkland Islands',
+              limit, taxon, skip_images)
     api = API()
 
     if validate and not output == 'bdj':

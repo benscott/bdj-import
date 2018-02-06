@@ -57,7 +57,7 @@ class Doc:
         'stateProvince',
     ]
 
-    def __init__(self, title, limit=None, taxon=None):
+    def __init__(self, title, limit=None, taxon=None, skip_images=False):
         self.title = title
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
@@ -65,6 +65,7 @@ class Doc:
         self.root = ET.Element("document")
         self.limit = limit
         self.taxon = taxon
+        self.skip_images = skip_images
 
         self.occurences = SpeciesOccurences()
         self._add_document_info()
@@ -163,8 +164,11 @@ class Doc:
 
             if self.limit and count >= self.limit:
                 break
-            if self.taxon and taxon != self.taxon:
-                continue
+            if self.taxon:
+                if taxon != self.taxon:
+                    continue
+                else:
+                    print('Processing {}'.format(taxon))
 
             treatment = self._build_taxon_treatment(taxon, occurence)
             taxon_treatments.append(treatment)
@@ -189,12 +193,40 @@ class Doc:
             treatment_fields_el, ['rank', 'value'], 'Species')
 
         if occurence.get('specificepithet', None):
+
+            specific_epithet = occurence.get('specificepithet', None)
+
+            # Some taxonomic concepts include sub-specific(?) epithets
+            # E.G. Aphelochaeta sp. 5fA, Aphelochaeta sp. 5fb
+            # Which need to be included in the taxonomic treatment
+            # So we'll try and extract the subspecific epithet from the
+            # taxon concept id
+
+            if occurence['specificepithet'] == 'sp.':
+                pattern = r'({}\s?\w+)'.format(specific_epithet)
+                m = re.search(pattern, taxon)
+                try:
+                    specific_epithet = m.group(0)
+                except AttributeError:
+                    pass
+            # If specific epithet is not sp. it is probably a species name
+            # So check if there's cf. in the taxonomic concept ID and
+            # add it to the epithet if it is
+            elif 'cf.' in taxon:
+                specific_epithet = 'cf. {}'.format(specific_epithet)
+
             self._add_nested_elements(treatment_fields_el, [
-                'species', 'value'], occurence['specificepithet'])
+                                      'species', 'value'], specific_epithet)
+
+        genus = occurence.get('genus', None)
+        # We have no genus - so if the species name is just sp 1. it will
+        # look incorrect - so try and get the genus from the scientific name
+        if not genus and specific_epithet == 'sp. 1':
+            genus = taxon.replace(specific_epithet, '')
 
         if occurence.get('genus', None):
             self._add_nested_elements(treatment_fields_el, [
-                'genus', 'value'], occurence['genus'])
+                'genus', 'value'], genus)
 
         if occurence.get('subgenus', None):
             # Replace any parenthesis
@@ -225,7 +257,7 @@ class Doc:
         notes = []
         # TODO: Add images at this point
         figures = occurence.get('figures', [])
-        if figures:
+        if figures and not self.skip_images:
             for figure in figures:
                 citation_ref = self._add_figure(figure)
 
@@ -239,6 +271,7 @@ class Doc:
             # If we have actual notes, append them to the start of the notes array
             # So any image references above float to the bottom
             notes = voucher_fields.get('remarks', []) + notes
+
             table_refs = self._extract_tables(
                 occurence.get('species_description'))
             notes += table_refs
@@ -297,9 +330,9 @@ class Doc:
             # FIXME: Abstract adding tables.
             self._add_checklist_taxon(checklist_el, **params)
 
-            for voucher_taxon, voucher in family['vouchers'].items():
+            for taxon in family['taxa']:
                 self._add_checklist_taxon(
-                    checklist_el, taxon=voucher_taxon, rank='species')
+                    checklist_el, taxon=taxon, rank='species')
 
             count += 1
 
@@ -308,6 +341,7 @@ class Doc:
         el_fields = self._add_elements(el, ['fields'])
         self._add_nested_elements(el_fields, ['rank', 'value'], rank)
         self._add_nested_elements(el_fields, [rank, 'value'], taxon)
+
         if notes:
             el_notes = self._add_nested_elements(
                 el, ['taxon_notes', 'fields', 'notes', 'value'])

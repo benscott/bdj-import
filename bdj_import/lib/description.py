@@ -33,6 +33,8 @@ class Description(object):
         soup = BeautifulSoup(self._raw_body, "html.parser")
         for el in soup.find_all(["p", "table"], recursive=False):
             l = self._tables if el.name == 'table' else self._paragraphs
+            # Remove all embedded images - these cannot be included in the xml
+            [x.extract() for x in el.findAll('img')]
             l.append(el)
 
     @property

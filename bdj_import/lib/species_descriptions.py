@@ -31,7 +31,7 @@ class SpeciesDescriptions(object):
                 ]
             desc = Description(
                 body=row['Body'],
-                tid=row['TID'],
+                tid=row['Term ID'],
                 index=set(idx),
                 scientific_name=row['Classification']
             )

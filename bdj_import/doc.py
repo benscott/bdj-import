@@ -128,7 +128,7 @@ class Doc:
                 if self.limit and count >= self.limit:
                     return
                 if self.taxon:
-                    if species_treatment.name != self.taxon:
+                    if species_treatment.taxon != self.taxon:
                         continue
 
                 logger.debug("Processing species %s.", species_treatment.taxon)

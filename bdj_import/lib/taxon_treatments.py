@@ -4,7 +4,7 @@ import csv
 from bdj_import.lib.helpers import normalize
 from bs4 import BeautifulSoup
 from fuzzywuzzy import fuzz
-from collections import OrderedDict
+from sortedcontainers import SortedDict
 import logging
 
 from bdj_import.lib.file import File
@@ -20,7 +20,7 @@ logger = logging.getLogger()
 class TaxonTreatments():
 
     def __init__(self):
-        self._data = OrderedDict()
+        self._data = SortedDict()
         self._parse_data()
 
     def __iter__(self):

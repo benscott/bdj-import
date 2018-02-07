@@ -61,8 +61,10 @@ class SpeciesTreatment(Treatment):
         genus = self.taxonomy.get('genus', None)
         # We have no genus - so if the species name is just sp 1. it will
         # look incorrect - so try and get the genus from the scientific name
-        if not genus and self.specific_epithet == 'sp. 1':
-            genus = self.taxon.replace(self.specific_epithet, '')
+        if not genus:
+            specific_epithet = self.taxonomy.get('specific_epithet', None)
+            if 'sp.' in specific_epithet:
+                genus = self.taxon.split(specific_epithet)[0]
         return genus
 
     @property

@@ -70,6 +70,7 @@ class TaxonTreatments():
                     if treatment_description:
                         treatment_figures = figures[treatment_description.tid]
                     else:
+                        treatment_figures = None
                         logger.warning('No species description for %s',
                                        normalized_taxon)
 

@@ -7,10 +7,8 @@ from bdj_import.lib.helpers import normalize
 
 class SpeciesDescriptions(object):
 
-    descriptions = []
-    families = {}
-
     def __init__(self):
+        self.descriptions = []
         self._parse_data()
 
     def _parse_data(self):
@@ -20,7 +18,10 @@ class SpeciesDescriptions(object):
             # If this is of rank family, index by family name
             # Otherwise index by title /classification
             # (which does actually includes species, genus & unranked)
-            if row['Rank'] and row['Rank'].lower() == 'family':
+
+            rank = row.get('Rank', 'species').lower()
+
+            if rank == 'family':
                 family = self._extract_family(row['Classification'])
                 idx = [family]
             else:
@@ -33,7 +34,8 @@ class SpeciesDescriptions(object):
                 body=row['Body'],
                 tid=row['Term ID'],
                 index=set(idx),
-                scientific_name=row['Classification']
+                scientific_name=row['Classification'],
+                rank=rank
             )
             self.descriptions.append(desc)
 
@@ -45,7 +47,13 @@ class SpeciesDescriptions(object):
         m = re.match(r'([^\s]+)', scientific_name)
         return m.group(1)
 
+    def get_family(self, taxon):
+        return self._get(taxon, 'family')
+
     def __getitem__(self, taxon):
+        return self._get(taxon)
+
+    def _get(self, taxon, rank=None):
         for description in self.descriptions:
-            if description.matches(taxon):
+            if description.matches(taxon, rank):
                 return description

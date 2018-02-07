@@ -1,63 +1,18 @@
 
-import csv
 import os
-import re
-import unicodedata
+import logging
 import xml.etree.cElementTree as ET
-from xml.dom import minidom
-from bs4 import BeautifulSoup
-from fuzzywuzzy import fuzz
-from collections import OrderedDict
 
-from bdj_import.api import API
-
-from bdj_import.lib.helpers import normalize, file_exists, prettify_html, ensure_list
-from bdj_import.lib.species_descriptions import SpeciesDescriptions
-from bdj_import.lib.figures import Figures
+from bdj_import.lib.helpers import normalize, file_exists, ensure_list, soupify
+from bdj_import.lib.taxon_treatments import TaxonTreatments
 
 
-from bdj_import.lib.species_occurences import SpeciesOccurences
+logger = logging.getLogger()
 
 
 class Doc:
 
-    nomenclature_fields = [
-        'genus',
-        'subgenus',
-        'family',
-        'scientificNameAuthorship',
-        'specificEpithet'
-    ]
-
-    material_fields = [
-        'family',
-        'scientificName',
-        'kingdom',
-        'phylum',
-        'class',
-        'waterBody',
-        'stateProvince',
-        'locality',
-        'verbatimLocality',
-        'maximumDepthInMeters',
-        'locationRemarks',
-        'decimalLatitude',
-        'decimalLongitude',
-        'geodeticDatum',
-        'samplingProtocol',
-        'eventDate',
-        'eventTime',
-        'fieldNumber',
-        'fieldNotes',
-        'individualCount',
-        'preparations',
-        'catalogueNumber',
-        'taxonConceptID',
-        'country',
-        'stateProvince',
-    ]
-
-    def __init__(self, title, limit=None, taxon=None, skip_images=False):
+    def __init__(self, title, limit=None, taxon=None, family=None, skip_images=False):
         self.title = title
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
@@ -66,8 +21,9 @@ class Doc:
         self.limit = limit
         self.taxon = taxon
         self.skip_images = skip_images
+        self.family = family
 
-        self.occurences = SpeciesOccurences()
+        self.treatments = TaxonTreatments()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
@@ -75,7 +31,6 @@ class Doc:
         # add the dependent metadata and treatments
         self._add_metadata()
         self._add_taxon_treatments()
-        self._add_checklists()
 
     def _add_document_info(self):
         # Create document info
@@ -158,24 +113,31 @@ class Doc:
         taxon_treatments = self.root.find('objects/taxon_treatments')
         count = 0
 
-        # As per Adrian's request, we want to structure the doc so
-        # family are included - not possible as a tree but at least in order
-        for taxon, occurence in self.occurences.items():
+        for family_treatment in self.treatments.values():
 
-            if self.limit and count >= self.limit:
-                break
-            if self.taxon:
-                if taxon != self.taxon:
+            if self.family:
+                if family_treatment.taxon.lower() != self.family.lower():
                     continue
-                else:
-                    print('Processing {}'.format(taxon))
 
-            treatment = self._build_taxon_treatment(taxon, occurence)
-            taxon_treatments.append(treatment)
+            logger.debug("Processing family %s.", family_treatment.taxon)
 
-            count += 1
+            treatment_el = self._build_taxon_treatment(family_treatment)
+            taxon_treatments.append(treatment_el)
 
-    def _build_taxon_treatment(self, taxon, occurence):
+            for species_treatment in family_treatment.list_species():
+                if self.limit and count >= self.limit:
+                    return
+                if self.taxon:
+                    if species_treatment.name != self.taxon:
+                        continue
+
+                logger.debug("Processing species %s.", species_treatment.taxon)
+
+                treatment_el = self._build_taxon_treatment(species_treatment)
+                taxon_treatments.append(treatment_el)
+                count += 1
+
+    def _build_taxon_treatment(self, treatment):
 
         treatment_el = ET.Element('treatment')
         treatment_fields_el = self._add_elements(
@@ -183,7 +145,7 @@ class Doc:
         )
 
         self._add_nested_elements(treatment_fields_el,
-                                  ['classification', 'value'], taxon)
+                                  ['classification', 'value'], treatment.taxon)
         self._add_nested_elements(treatment_fields_el,
                                   ['type_of_treatment', 'value'],
                                   'Redescription or species observation'
@@ -192,93 +154,56 @@ class Doc:
         self._add_nested_elements(
             treatment_fields_el, ['rank', 'value'], 'Species')
 
-        if occurence.get('specificepithet', None):
+        # Loop through all the taxonomic fields, and add them if they have a
+        # value
+        for taxonomic_field in ['species', 'genus', 'subgenus', 'taxon_authors']:
+            if hasattr(treatment, taxonomic_field) and getattr(treatment, taxonomic_field):
+                self._add_nested_elements(treatment_fields_el, [
+                    taxonomic_field, 'value'], getattr(treatment, taxonomic_field))
 
-            specific_epithet = occurence.get('specificepithet', None)
+        if treatment.materials:
+            # Add material fields
+            materials_el = ET.SubElement(treatment_el, "materials")
 
-            # Some taxonomic concepts include sub-specific(?) epithets
-            # E.G. Aphelochaeta sp. 5fA, Aphelochaeta sp. 5fb
-            # Which need to be included in the taxonomic treatment
-            # So we'll try and extract the subspecific epithet from the
-            # taxon concept id
-
-            if occurence['specificepithet'] == 'sp.':
-                pattern = r'({}\s?\w+)'.format(specific_epithet)
-                m = re.search(pattern, taxon)
-                try:
-                    specific_epithet = m.group(0)
-                except AttributeError:
-                    pass
-            # If specific epithet is not sp. it is probably a species name
-            # So check if there's cf. in the taxonomic concept ID and
-            # add it to the epithet if it is
-            elif 'cf.' in taxon:
-                specific_epithet = 'cf. {}'.format(specific_epithet)
-
-            self._add_nested_elements(treatment_fields_el, [
-                                      'species', 'value'], specific_epithet)
-
-        genus = occurence.get('genus', None)
-        # We have no genus - so if the species name is just sp 1. it will
-        # look incorrect - so try and get the genus from the scientific name
-        if not genus and specific_epithet == 'sp. 1':
-            genus = taxon.replace(specific_epithet, '')
-
-        if occurence.get('genus', None):
-            self._add_nested_elements(treatment_fields_el, [
-                'genus', 'value'], genus)
-
-        if occurence.get('subgenus', None):
-            # Replace any parenthesis
-            subgenus = re.sub(r'\(|\)', '', occurence['subgenus'])
-            self._add_nested_elements(treatment_fields_el, [
-                'subgenus', 'value'], subgenus)
-
-        authorship = occurence.get('scientificnameauthorship', None)
-
-        if authorship and occurence['specificepithet'] != 'sp.':
-            self._add_nested_elements(treatment_fields_el, [
-                'taxon_authors', 'value'], authorship)
-
-        # Add material fields
-        materials_el = ET.SubElement(treatment_el, "materials")
-
-        for material in occurence.get('materials'):
-            material_fields_el = self._add_nested_elements(
-                materials_el, ['material', 'fields']
-            )
-            self._add_nested_elements(
-                material_fields_el, ['type_status', 'value'], 'Other material')
-
-            for fn, value in material.items():
-                self._add_nested_elements(
-                    material_fields_el, [fn, 'value'], value)
-
-        notes = []
-        # TODO: Add images at this point
-        figures = occurence.get('figures', [])
-        if figures and not self.skip_images:
-            for figure in figures:
-                citation_ref = self._add_figure(figure)
-
-                notes.append(
-                    self._soup_el('<p>[Figure {}]</p>', citation_ref)
+            for material in treatment.materials:
+                material_fields_el = self._add_nested_elements(
+                    materials_el, ['material', 'fields']
                 )
+                self._add_nested_elements(material_fields_el,
+                                          ['type_status', 'value'], 'Other material'
+                                          )
 
-        if occurence.get('species_description'):
-            voucher_fields = occurence['species_description'].voucher_fields
+                # FIXME: This is very hacky
+                material_scientific_name = material.pop('scientificname')
+                name_parts = material_scientific_name.split(' ')
+                scientific_name_el = ET.Element("value")
 
-            # If we have actual notes, append them to the start of the notes array
-            # So any image references above float to the bottom
-            notes = voucher_fields.get('remarks', []) + notes
+                self._add_elements(
+                    scientific_name_el, ['em'], ' '.join(name_parts[0:1]))
+                self._add_elements(
+                    scientific_name_el, ['span'], ' '.join([''] + name_parts[1:]))
+                self._add_elements(material_fields_el, ['scientificname']).append(
+                    scientific_name_el)
 
-            table_refs = self._extract_tables(
-                occurence.get('species_description'))
-            notes += table_refs
+                for fn, value in material.items():
+                    self._add_nested_elements(
+                        material_fields_el, [fn, 'value'], value)
 
-            if voucher_fields.get('diagnosis', None):
-                self._add_material_detail(treatment_el,
-                                          'diagnosis', voucher_fields['diagnosis'])
+        notes = treatment.notes
+
+        # Add any figures
+        if treatment.figures and not self.skip_images:
+            figures_refs = self._add_figures(treatment.figures)
+            notes.extend(figures_refs)
+
+        # Add any table references
+        if treatment.description:
+            table_refs = self._add_tables(treatment.description)
+            notes.extend(table_refs)
+
+        if treatment.diagnosis:
+            self._add_material_detail(treatment_el,
+                                      'diagnosis', treatment.diagnosis)
 
         if notes:
             self._add_material_detail(treatment_el, 'notes', notes)
@@ -291,70 +216,11 @@ class Doc:
         for p in paragraphs:
             self._add_elements(el, 'p', normalize(p.getText()))
 
-    @staticmethod
-    def _soup_el(html, vars):
-        return BeautifulSoup(html.format(vars), "html.parser")
-
-    def _add_checklists(self):
-
-        count = 0
-        checklists_el = self.root.find('objects/checklists')
-        # Create a checklist for Polychaeta
-
-        checklist_el = self._add_elements(
-            checklists_el, ['checklist'])
-
-        checklist_fields_el = self._add_elements(
-            checklist_el, ['fields'])
-
-        self._add_nested_elements(
-            checklist_fields_el, ['classification', 'value'], 'Polychaeta')
-
-        self._add_nested_elements(
-            checklist_fields_el, ['title', 'value'], 'Polychaeta')
-
-        for family_name, family in self.occurences.tree.items():
-
-            if self.limit and count >= self.limit:
-                break
-
-            table_refs = self._extract_tables(family['species_description'])
-            notes = family['species_description'].body + table_refs
-
-            params = {
-                'taxon': family['species_description'].scientific_name,
-                'rank': 'family',
-                'notes': notes,
-            }
-
-            # FIXME: Abstract adding tables.
-            self._add_checklist_taxon(checklist_el, **params)
-
-            for taxon in family['taxa']:
-                self._add_checklist_taxon(
-                    checklist_el, taxon=taxon, rank='species')
-
-            count += 1
-
-    def _add_checklist_taxon(self, root, taxon, rank, notes=None):
-        el = self._add_elements(root, ['checklist_taxon'])
-        el_fields = self._add_elements(el, ['fields'])
-        self._add_nested_elements(el_fields, ['rank', 'value'], rank)
-        self._add_nested_elements(el_fields, [rank, 'value'], taxon)
-
-        if notes:
-            el_notes = self._add_nested_elements(
-                el, ['taxon_notes', 'fields', 'notes', 'value'])
-            for p in notes:
-                self._add_elements(el_notes, 'p', normalize(p.getText()))
-
-        return el
-
-    def _extract_tables(self, species_description):
+    def _add_tables(self, species_description):
         refs = []
         for table in species_description.tables:
             citation_ref = self._add_table(table)
-            refs.append(self._soup_el('<p>[Table {}]</p>', citation_ref))
+            refs.append(soupify('<p>[Table {}]</p>', citation_ref))
         return refs
 
     def _add_table(self, table):
@@ -372,7 +238,17 @@ class Doc:
             table_fields, ['table_editor', 'value']).append(
                 ET.fromstring(str(table.prettify()))
         )
-        return self._add_citation(table_id, 'tables')
+        self._add_citation(table_id, 'tables')
+        return table_id
+
+    def _add_figures(self, figures):
+        refs = []
+        for figure in figures:
+            citation_ref = self._add_figure(figure)
+            refs.append(
+                soupify('<p>[Figure {}]</p>', citation_ref)
+            )
+        return refs
 
     def _add_figure(self, figure):
 
@@ -398,7 +274,8 @@ class Doc:
 
         # Add the figure element to the figures
         object_figures.append(figure_el)
-        return self._add_citation(figure_id, 'figs')
+        self._add_citation(figure_id, 'figs')
+        return figure_id
 
     def _add_citation(self, object_id, citation_type):
         """

@@ -19,6 +19,13 @@ logger = logging.getLogger()
 
 class TaxonTreatments():
 
+    # List of taxa to exlude
+    excluded_taxa = [
+        'Sigambra sp. 1',
+        'Phylo cf. felix juv.',
+        'Ilyphagus sp.'
+    ]
+
     def __init__(self):
         self._data = SortedDict()
         self._parse_data()
@@ -49,6 +56,12 @@ class TaxonTreatments():
 
                 family = normalize(row.get('family'))
 
+                normalized_taxon = normalize(row['taxonConceptID'])
+
+                # If this is a taxon to be excluded continue to next
+                if normalized_taxon in self.excluded_taxa:
+                    continue
+
                 # Ensure the family exists
                 try:
                     self._data[family]
@@ -57,8 +70,6 @@ class TaxonTreatments():
                         taxon=family,
                         description=species_descriptions.get_family(family)
                     )
-
-                normalized_taxon = normalize(row['taxonConceptID'])
 
                 species = self._data[family].get_species(normalized_taxon)
 

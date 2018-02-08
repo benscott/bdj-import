@@ -1,11 +1,41 @@
 import re
+import logging
 
 from bdj_import.lib.file import File
 from bdj_import.lib.description import Description
 from bdj_import.lib.helpers import normalize
 
 
+logger = logging.getLogger()
+
+
 class SpeciesDescriptions(object):
+
+    # Some Scratchpad species descriptions are tagged with different terms
+    # These provide mappings from DWCA => Scratchpad Term
+    scratchpad_term_mappings = {
+        'Amage scultpa': 'Amage Malmgren, 1866',
+        'Ancistrosyllis cf groenlandica': 'Pilargidae de Saint-Joseph, 1899',
+        'Apistobranchus sp. 1': 'Apistobranchidae Mesnil and Caullery, 1898',
+        'Aricidea (Aedicira) antarctica': 'Aricidea (Allia) antarctica Hartmann-Schröder & Rosenfeldt, 1988',
+        'Cirrophorus cf. furcatus': 'Cirrophorus Ehlers, 1908',
+        'Cossura sp. 1': 'Cossuridae Day, 1963',
+        'Desdemona? sp. 1': 'Desdemona Banse, 1957',
+        'Eucranta mollis': 'Eucranta Malmgren, 1866',
+        'Galathowenia sp. 1': 'Oweniidae Rioja, 1917',
+        'Jasmineira cf. regularis': 'Jasmineira regularis form 2 Hartman, 1978',
+        'Jasmineira cf. regularis (form 1)': 'Jasmineira regularis form 1 Hartman, 1978',
+        'Jasmineira (Claviramus?) sp. 5': 'Claviramus Fitzhugh, 2002',
+        'Myxicola cf. sulcata': 'Myxicola Koch in Renier, 1847',
+        'Neoleanira magellanica': 'Sigalionidae (Neoleanira?) sp. 1',
+        'Nichomache cf. lumbricalis': 'Nichomache Malmgren, 1865',
+        'Paramphinome australis': 'Amphinomidae Lamarck, 1818',
+        'Parexogone cf. wolfi': 'Exogone (Paraexogone) cf. wolfi San Martín, 1991',
+        'Potamethus sp. 1': 'Potamethus Chamberlin, 1919',
+        'Schistomeringos sp 1': 'Dorvilleidae Chamberlin, 1919',
+        'Scolelepis sp. 1': 'Scololepis sp. 1',
+        'Sternaspis sp. 1': 'Sternaspidae Carus, 1863'
+    }
 
     def __init__(self):
         self.descriptions = []
@@ -23,17 +53,22 @@ class SpeciesDescriptions(object):
 
             if rank == 'family':
                 family = self._extract_family(row['Classification'])
-                idx = [family]
+                idx = [
+                    family,
+                    normalize(row['Classification']),
+                    normalize(row['Title']),
+                ]
             else:
                 idx = [
                     # Matching taxon can be either title or classification
                     normalize(row['Title']),
                     normalize(row['Classification'])
                 ]
+
             desc = Description(
                 body=row['Body'],
                 tid=row['Term ID'],
-                index=set(idx),
+                index=set([self._normalize_index(i) for i in idx]),
                 scientific_name=row['Classification'],
                 rank=rank
             )
@@ -53,7 +88,26 @@ class SpeciesDescriptions(object):
     def __getitem__(self, taxon):
         return self._get(taxon)
 
+    @staticmethod
+    def _normalize_index(term):
+        """
+        To help fix typos etc., remove all white space and dots
+        Before indexing / lookup
+        """
+        return term.replace(' ', '').replace('.', '')
+
     def _get(self, taxon, rank=None):
+
+        # Does the taxon map to a different one on Scratchpads?
+        try:
+            scratchpad_taxon = self.scratchpad_term_mappings[taxon]
+        except KeyError:
+            pass
+        else:
+            logger.warning('Using alternative term mapping %s => %s',
+                           taxon, scratchpad_taxon)
+            taxon = scratchpad_taxon
+
         for description in self.descriptions:
-            if description.matches(taxon, rank):
+            if description.matches(self._normalize_index(taxon), rank):
                 return description

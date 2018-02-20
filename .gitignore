@@ -100,3 +100,4 @@ ENV/
 .mypy_cache/
 
 *.cfg
+.DS_Store

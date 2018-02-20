@@ -2,14 +2,14 @@ import re
 import logging
 
 from bdj_import.lib.file import File
-from bdj_import.lib.description import Description
+from bdj_import.lib.scratchpads.description import Description
 from bdj_import.lib.helpers import normalize
 
 
 logger = logging.getLogger()
 
 
-class SpeciesDescriptions(object):
+class Descriptions(object):
 
     # Some Scratchpad species descriptions are tagged with different terms
     # These provide mappings from DWCA => Scratchpad Term
@@ -37,13 +37,15 @@ class SpeciesDescriptions(object):
         'Sternaspis sp. 1': 'Sternaspidae Carus, 1863'
     }
 
+    file_name = 'scratchpads/species-description-export.csv'
+
     def __init__(self):
         self.descriptions = []
         self._parse_data()
 
     def _parse_data(self):
 
-        for row in File('species-description-export.csv'):
+        for row in File(self.file_name):
 
             # If this is of rank family, index by family name
             # Otherwise index by title /classification

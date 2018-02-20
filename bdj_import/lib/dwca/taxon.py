@@ -1,18 +1,15 @@
 import abc
 
 
-class Treatment(object):
+class Taxon(object):
 
-    def __init__(self, taxon, description, taxonomy=[], figures=[]):
+    def __init__(self, scientific_name, description, taxonomy=[], figures=[]):
 
-        self.taxon = taxon
+        self.scientific_name = scientific_name
         self.taxonomy = taxonomy
         self.description = description
         self.figures = figures
         self.materials = []
-
-    def __repr__(self):
-        return 'Treatment ({})'.format(self.taxon)
 
     @abc.abstractproperty
     def diagnosis(self):

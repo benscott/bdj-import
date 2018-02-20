@@ -1,11 +1,11 @@
 import re
 from fuzzywuzzy import fuzz
 
-from bdj_import.lib.treatment import Treatment
-from bdj_import.lib.helpers import strip_parenthesis, normalize
+from bdj_import.lib.dwca.taxon import Taxon
+from bdj_import.lib.helpers import normalize
 
 
-class SpeciesTreatment(Treatment):
+class SpeciesTaxon(Taxon):
 
     # Fields to include in material detail
     material_fields = [
@@ -39,7 +39,8 @@ class SpeciesTreatment(Treatment):
     def __init__(self, **kwargs):
         self.fields = self._parse_species_description(
             kwargs.get('description'))
-        super(SpeciesTreatment, self).__init__(**kwargs)
+        super(SpeciesTaxon, self).__init__(**kwargs)
+        self.re = re.compile(r'(sp.\s?[0-9])$')
 
     def add_material(self, data):
         self.materials.append({
@@ -48,60 +49,16 @@ class SpeciesTreatment(Treatment):
 
     @property
     def species(self):
-        # We do not want to include the specific_epithet if it's sp.
-        # as then it will be italicized - it will be added to the authors
-        species = self.taxonomy.get('specific_epithet', None)
-        if not self._is_abbreviated_specific_name():
-            if 'cf.' in self.taxon:
-                species = 'cf. {}'.format(species)
-            return species
-
-    @property
-    def genus(self):
-        genus = self.taxonomy.get('genus', None)
-        # We have no genus - so if the species name is just sp 1. it will
-        # look incorrect - so try and get the genus from the scientific name
-        if not genus:
-            specific_epithet = self.taxonomy.get('specific_epithet', None)
-            if 'sp.' in specific_epithet:
-                genus = self.taxon.split(specific_epithet)[0]
-        return genus
-
-    @property
-    def subgenus(self):
-        subgenus = self.taxonomy.get('subgenus', None)
-        if subgenus:
-            # Replace any parenthesis - these are added in the BDJ
-            subgenus = strip_parenthesis(subgenus)
-        return subgenus
+        return self.re.sub('', self.scientific_name).strip()
 
     @property
     def taxon_authors(self):
+        """
+        We don't want sp.x italicised, so add as taxon authors
+        """
 
-        # Some taxonomic concepts include sub-specific(?) epithets
-        # E.G. Aphelochaeta sp. 5fA, Aphelochaeta sp. 5fb
-        # Which need to be included in the taxonomic treatment
-        # So we'll try and extract the subspecific epithet from the
-        # taxon concept id
-        if self._is_abbreviated_specific_name():
-            specific_epithet = self.taxonomy.get('specific_epithet')
-            pattern = r'({}\s?\w+)'.format(specific_epithet)
-            m = re.search(pattern, self.taxon)
-
-            try:
-                return m.group(0)
-            except AttributeError:
-                return specific_epithet
-
-        taxon_authors = self.taxonomy.get('taxon_authors', None)
-
-        if taxon_authors:
-            # Strip and re-wrap taxon authors in parenthesis
-            taxon_authors = '({0})'.format(
-                strip_parenthesis(taxon_authors).strip()
-            )
-
-        return taxon_authors
+        m = self.re.search(self.scientific_name)
+        return m.group(1)
 
     @property
     def notes(self):
@@ -110,9 +67,6 @@ class SpeciesTreatment(Treatment):
     @property
     def diagnosis(self):
         return self.fields.get('diagnosis')
-
-    def _is_abbreviated_specific_name(self):
-        return self.taxonomy.get('specific_epithet') == 'sp.'
 
     def _parse_species_description(self, description):
         """
@@ -147,3 +101,6 @@ class SpeciesTreatment(Treatment):
                     fields.setdefault(current_field, []).append(p)
 
         return fields
+
+    def __repr__(self):
+        return 'Species ({})'.format(self.scientific_name)

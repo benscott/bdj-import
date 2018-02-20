@@ -1,15 +1,15 @@
-from bdj_import.lib.treatment import Treatment
+from bdj_import.lib.dwca.taxon import Taxon
 from sortedcontainers import SortedDict
 
 
-class FamilyTreatment(Treatment):
+class FamilyTaxon(Taxon):
 
     def __init__(self, **kwargs):
         self.species_treatments = SortedDict()
-        super(FamilyTreatment, self).__init__(**kwargs)
+        super(FamilyTaxon, self).__init__(**kwargs)
 
     def add_species(self, species):
-        self.species_treatments[species.taxon] = species
+        self.species_treatments[species.scientific_name] = species
 
     def get_species(self, taxon):
         return self.species_treatments.get(taxon, None)
@@ -28,3 +28,6 @@ class FamilyTreatment(Treatment):
     @property
     def notes(self):
         return self.description.paragraphs
+
+    def __repr__(self):
+        return 'Family ({})'.format(self.scientific_name)

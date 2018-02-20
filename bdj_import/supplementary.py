@@ -3,9 +3,8 @@ import os
 import logging
 import xml.etree.cElementTree as ET
 
-from bdj_import.lib.helpers import normalize, file_exists, ensure_list
-
-from bdj_import.lib.dwca.taxa import DWCATaxa
+from bdj_import.lib.helpers import normalize, file_exists, ensure_list, soupify
+from bdj_import.lib.taxon_treatments import TaxonTreatments
 
 
 logger = logging.getLogger()
@@ -24,9 +23,7 @@ class Doc:
         self.skip_images = skip_images
         self.family = family
 
-        # Parse the DWC files
-        self.new_species = DWCATaxa()
-
+        self.treatments = TaxonTreatments()
         self._add_document_info()
         self._add_authors()
         self._add_objects()
@@ -116,29 +113,27 @@ class Doc:
         taxon_treatments = self.root.find('objects/taxon_treatments')
         count = 0
 
-        for family in self.new_species.values():
+        for family_treatment in self.treatments.values():
 
-            # If we have suplied a family name cli parameter, continue if
-            # the fmaily scientific name does not match
             if self.family:
-                if family.scientific_name.lower() != self.family.lower():
+                if family_treatment.taxon.lower() != self.family.lower():
                     continue
 
-            logger.debug("Processing family %s.", family.scientific_name)
+            logger.debug("Processing family %s.", family_treatment.taxon)
 
-            # treatment_el = self._build_taxon_treatment(family)
-            # taxon_treatments.append(treatment_el)
+            treatment_el = self._build_taxon_treatment(family_treatment)
+            taxon_treatments.append(treatment_el)
 
-            for species in family.list_species():
+            for species_treatment in family_treatment.list_species():
                 if self.limit and count >= self.limit:
                     return
                 if self.taxon:
-                    if species.scientific_name != self.taxon:
+                    if species_treatment.taxon != self.taxon:
                         continue
 
-                logger.debug("Processing species %s.", species.scientific_name)
+                logger.debug("Processing species %s.", species_treatment.taxon)
 
-                treatment_el = self._build_taxon_treatment(species)
+                treatment_el = self._build_taxon_treatment(species_treatment)
                 taxon_treatments.append(treatment_el)
                 count += 1
 
@@ -150,7 +145,7 @@ class Doc:
         )
 
         self._add_nested_elements(treatment_fields_el,
-                                  ['classification', 'value'], treatment.scientific_name)
+                                  ['classification', 'value'], treatment.taxon)
         self._add_nested_elements(treatment_fields_el,
                                   ['type_of_treatment', 'value'],
                                   'Redescription or species observation'
@@ -178,8 +173,17 @@ class Doc:
                                           ['type_status', 'value'], 'Other material'
                                           )
 
-                self._add_nested_elements(material_fields_el, [
-                    'scientificname', 'value'], treatment.species)
+                # FIXME: This is very hacky
+                material_scientific_name = material.pop('scientificname')
+                name_parts = material_scientific_name.split(' ')
+                scientific_name_el = ET.Element("value")
+
+                self._add_elements(
+                    scientific_name_el, ['em'], ' '.join(name_parts[0:1]))
+                self._add_elements(
+                    scientific_name_el, ['span'], ' '.join([''] + name_parts[1:]))
+                self._add_elements(material_fields_el, ['scientificname']).append(
+                    scientific_name_el)
 
                 for fn, value in material.items():
                     self._add_nested_elements(
@@ -187,28 +191,22 @@ class Doc:
 
         notes = treatment.notes
 
-        citation_ids = []
-
         # Add any figures
         if treatment.figures and not self.skip_images:
-            figure_citation_ids = self._add_figures(treatment.figures)
-            citation_ids.extend(figure_citation_ids)
+            figures_refs = self._add_figures(treatment.figures)
+            notes.extend(figures_refs)
 
         # Add any table references
         if treatment.description:
-            table_citation_ids = self._add_tables(treatment.description)
-            citation_ids.extend(table_citation_ids)
+            table_refs = self._add_tables(treatment.description)
+            notes.extend(table_refs)
 
         if treatment.diagnosis:
             self._add_material_detail(treatment_el,
                                       'diagnosis', treatment.diagnosis)
 
-        # Always add notes, do we can add the inline citations
-        notes_el = self._add_material_detail(treatment_el, 'notes', notes)
-
-        for citation_id in citation_ids:
-            notes_el.append(ET.Element("inline_citation",
-                                       citation_id=str(citation_id)))
+        if notes:
+            self._add_material_detail(treatment_el, 'notes', notes)
 
         return treatment_el
 
@@ -217,13 +215,12 @@ class Doc:
             root, [element_name, 'fields', element_name, 'value'])
         for p in paragraphs:
             self._add_elements(el, 'p', normalize(p.getText()))
-        return el
 
     def _add_tables(self, species_description):
         refs = []
         for table in species_description.tables:
-            citation_id = self._add_table(table)
-            refs.append(citation_id)
+            citation_ref = self._add_table(table)
+            refs.append(soupify('<p>[Table {}]</p>', citation_ref))
         return refs
 
     def _add_table(self, table):
@@ -241,13 +238,16 @@ class Doc:
             table_fields, ['table_editor', 'value']).append(
                 ET.fromstring(str(table.prettify()))
         )
-        return self._add_citation(table_id, 'tables')
+        self._add_citation(table_id, 'tables')
+        return table_id
 
     def _add_figures(self, figures):
         refs = []
         for figure in figures:
-            citation_id = self._add_figure(figure)
-            refs.append(citation_id)
+            citation_ref = self._add_figure(figure)
+            refs.append(
+                soupify('<p>[Figure {}]</p>', citation_ref)
+            )
         return refs
 
     def _add_figure(self, figure):
@@ -274,20 +274,12 @@ class Doc:
 
         # Add the figure element to the figures
         object_figures.append(figure_el)
-        return self._add_citation(figure_id, 'figs')
+        self._add_citation(figure_id, 'figs')
+        return figure_id
 
     def _add_citation(self, object_id, citation_type):
         """
-
         Add a citation referenceG
-
-
-        Args:
-            object_id (TYPE): Description
-            citation_type (TYPE): Description
-
-        Returns:
-            inline citation id
         """
         citations_el = self.root.find('citations')
         # We need to specify an id, so count how many we have and iterate one
@@ -299,7 +291,6 @@ class Doc:
         })
         self._add_elements(citation_el, ['object_id'], str(object_id))
         self._add_elements(citation_el, ['citation_type'], citation_type)
-
         return citation_id
 
     @property

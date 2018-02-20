@@ -24,6 +24,7 @@ def main(limit, validate, output, family, taxon, skip_images):
     response = None
     doc = Doc('Marine Fauna and Flora of the Falkland Islands',
               limit, taxon, family, skip_images)
+
     api = API()
 
     if validate and not output == 'bdj':

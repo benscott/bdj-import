@@ -1,7 +1,6 @@
 
 
 from bdj_import.lib.file import File
-from bdj_import.lib.helpers import normalize
 
 
 class Figures(object):
@@ -9,9 +8,10 @@ class Figures(object):
     Extract data from the exported image files
     """
     _data = {}
+    file_name = 'scratchpads/image-export.csv'
 
     def __init__(self):
-        for row in File('image-export.csv'):
+        for row in File(self.file_name):
             self._data.setdefault(row['TID'], []).append(
                 {
                     'description': row['Description'],

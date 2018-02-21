@@ -18,13 +18,6 @@ logger = logging.getLogger()
 
 class DWCATaxa():
 
-    # List of taxa to exlude
-    excluded_taxa = [
-        'Sigambra sp. 1',
-        'Phylo cf. felix juv.',
-        'Ilyphagus sp.'
-    ]
-
     def __init__(self, file_name):
         self.file_name = file_name
         self._data = SortedDict()
@@ -55,12 +48,6 @@ class DWCATaxa():
                 continue
 
             normalized_taxon = normalize(row['taxonConceptID'])
-
-            # If this is a taxon to be excluded continue to next
-            if normalized_taxon in self.excluded_taxa:
-                print(normalized_taxon)
-                print('YEYEYEY')
-                continue
 
             # Ensure the family exists
             try:

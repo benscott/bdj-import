@@ -25,8 +25,8 @@ class DWCATaxa():
         'Ilyphagus sp.'
     ]
 
-    def __init__(self):
-        self.file_name = 'dwca/new_species.csv'
+    def __init__(self, file_name):
+        self.file_name = file_name
         self._data = SortedDict()
         self._parse_data()
 
@@ -50,6 +50,9 @@ class DWCATaxa():
         for row in dwca:
 
             family = normalize(row.get('family'))
+            # If there's no family (often EOF) then skip
+            if not family:
+                continue
 
             normalized_taxon = normalize(row['taxonConceptID'])
 

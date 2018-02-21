@@ -4,9 +4,13 @@ from sortedcontainers import SortedDict
 
 class FamilyTaxon(Taxon):
 
+    FAMILY = 0
+    TAXON_AUTHORS = 1
+
     def __init__(self, **kwargs):
         self.species_treatments = SortedDict()
         super(FamilyTaxon, self).__init__(**kwargs)
+        self._scientific_name_parts = self._split_scientific_name()
 
     def add_species(self, species):
         self.species_treatments[species.scientific_name] = species
@@ -20,10 +24,26 @@ class FamilyTaxon(Taxon):
     @property
     def taxon_authors(self):
         """
-        Include the full scientific name in the taxon authors field
-        So that it is completely unitalicized
+        Return the taxon author part of the scientific name string (after
+        the first space)
         """
-        return self.description.scientific_name
+        return self._scientific_name_parts[self.TAXON_AUTHORS]
+
+    @property
+    def family_name(self):
+        """
+        Return first part of the scientifc name (before space)
+        """
+        return self._scientific_name_parts[self.FAMILY]
+
+    def _split_scientific_name(self):
+        """
+        Split species description scientific name on first space
+        Everyting after first space will be taxon author part        
+        Returns:
+            TYPE: Description
+        """
+        return self.description.scientific_name.split(' ', 1)
 
     @property
     def notes(self):

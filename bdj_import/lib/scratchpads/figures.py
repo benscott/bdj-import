@@ -19,4 +19,7 @@ class Figures(object):
                 })
 
     def __getitem__(self, tid):
-        return self._data[tid]
+        try:
+            return self._data[tid]
+        except KeyError:
+            return None

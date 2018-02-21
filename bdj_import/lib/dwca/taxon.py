@@ -11,6 +11,13 @@ class Taxon(object):
         self.figures = figures
         self.materials = []
 
+    @property
+    def tid(self):
+        try:
+            return self.description.tid
+        except AttributeError:
+            return None
+
     @abc.abstractproperty
     def diagnosis(self):
         return None

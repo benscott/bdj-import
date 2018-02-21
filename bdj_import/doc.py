@@ -13,19 +13,20 @@ logger = logging.getLogger()
 
 class Doc:
 
-    def __init__(self, title, limit=None, taxon=None, family=None, skip_images=False):
+    def __init__(self, title, limit=None, family=None, species=None, skip_images=False):
         self.title = title
         self.data_dir = os.path.join(os.path.dirname(
             __file__), 'data')
 
         self.root = ET.Element("document")
         self.limit = limit
-        self.taxon = taxon
+        self.species = species
         self.skip_images = skip_images
         self.family = family
 
         # Parse the DWC files
-        self.new_species = DWCATaxa()
+        # self.new_species = DWCATaxa('dwca/new_species.csv')
+        self.vouchers = DWCATaxa('dwca/vouchers.csv')
 
         self._add_document_info()
         self._add_authors()
@@ -33,7 +34,8 @@ class Doc:
         # After the objects (general structure has been created), we can
         # add the dependent metadata and treatments
         self._add_metadata()
-        self._add_taxon_treatments()
+        # self._add_taxon_treatments()
+        self._add_checklists()
 
     def _add_document_info(self):
         # Create document info
@@ -111,6 +113,29 @@ class Doc:
         # Add citations
         self._add_elements(self.root, "citations")
 
+    def _apply_cli_filters(self, **kwargs):
+        """
+
+        Apply CLI filters
+        If user has passed in family, species our limit, then return false
+
+        Args:
+            **kwargs: Description
+
+        Returns:
+            TYPE: Boolean
+        """
+
+        for f in ['family', 'species']:
+            if kwargs.get(f, None) and getattr(self, f):
+                if kwargs.get(f).lower() != getattr(self, f).lower():
+                    return False
+
+        if kwargs.get('count') and self.limit and kwargs.get('count') >= self.limit:
+            return False
+
+        return True
+
     def _add_taxon_treatments(self):
 
         taxon_treatments = self.root.find('objects/taxon_treatments')
@@ -120,23 +145,18 @@ class Doc:
 
             # If we have suplied a family name cli parameter, continue if
             # the fmaily scientific name does not match
-            if self.family:
-                if family.scientific_name.lower() != self.family.lower():
-                    continue
+            if not self._apply_cli_filters(family=family.scientific_name):
+                continue
 
-            logger.debug("Processing family %s.", family.scientific_name)
-
-            # treatment_el = self._build_taxon_treatment(family)
-            # taxon_treatments.append(treatment_el)
+            logger.debug("Processing treatment: family %s.",
+                         family.scientific_name)
 
             for species in family.list_species():
-                if self.limit and count >= self.limit:
-                    return
-                if self.taxon:
-                    if species.scientific_name != self.taxon:
-                        continue
+                if not self._apply_cli_filters(count=count, species=species.scientific_name):
+                    continue
 
-                logger.debug("Processing species %s.", species.scientific_name)
+                logger.debug("Processing treatment: species %s.",
+                             species.scientific_name)
 
                 treatment_el = self._build_taxon_treatment(species)
                 taxon_treatments.append(treatment_el)
@@ -153,7 +173,7 @@ class Doc:
                                   ['classification', 'value'], treatment.scientific_name)
         self._add_nested_elements(treatment_fields_el,
                                   ['type_of_treatment', 'value'],
-                                  'Redescription or species observation'
+                                  'New taxon'
                                   )
 
         self._add_nested_elements(
@@ -301,6 +321,69 @@ class Doc:
         self._add_elements(citation_el, ['citation_type'], citation_type)
 
         return citation_id
+
+    def _add_checklists(self):
+
+        count = 0
+        checklists_el = self.root.find('objects/checklists')
+        # Create a checklist for Polychaeta
+
+        checklist_el = self._add_elements(
+            checklists_el, ['checklist'])
+
+        checklist_fields_el = self._add_elements(
+            checklist_el, ['fields'])
+
+        self._add_nested_elements(
+            checklist_fields_el, ['classification', 'value'], 'Polychaeta')
+
+        self._add_nested_elements(
+            checklist_fields_el, ['title', 'value'], 'Polychaeta')
+
+        for family in self.vouchers.values():
+
+            # If we have suplied a family name cli parameter, continue if
+            # the fmaily scientific name does not match
+            if not self._apply_cli_filters(family=family.scientific_name):
+                continue
+
+            logger.debug("Processing checklist: Family %s.",
+                         family.scientific_name)
+
+            self._add_checklist(
+                checklist_el, name=family.family_name, rank='family', taxon=family)
+
+            for family_species in family.list_species():
+                if not self._apply_cli_filters(count=count, species=family_species.scientific_name):
+                    continue
+
+                logger.debug("Processing checklist: Species %s.",
+                             family_species.scientific_name)
+
+                self._add_checklist(
+                    checklist_el, name=family_species.species, rank='species', taxon=family_species)
+
+    def _add_checklist(self, root, name, rank, taxon):
+        checklist_taxon_el = self._add_elements(root, 'checklist_taxon')
+        fields_el = self._add_elements(checklist_taxon_el, 'fields')
+        self._add_nested_elements(fields_el, ['rank', 'value'], rank)
+        self._add_nested_elements(fields_el, [rank, 'value'], name)
+
+        if taxon.taxon_authors:
+            self._add_nested_elements(
+                fields_el, ['taxon_authors_and_year', 'value'], taxon.taxon_authors)
+
+        link_url = 'http://falklands.myspecies.info/simpletaxonomy/term/{tid}'
+        if taxon.tid:
+            links_el = self._add_nested_elements(
+                checklist_taxon_el, ['external_links', 'external_link', 'fields'])
+            self._add_nested_elements(links_el, [
+                                      'link', 'value'], link_url.format(tid=taxon.tid))
+            self._add_nested_elements(
+                links_el, ['link_type', 'value'], 'Other URL')
+
+            self._add_nested_elements(
+                links_el, ['label', 'value'], 'Falklands Scratchpad')
 
     @property
     def xml(self):

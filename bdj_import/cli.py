@@ -16,14 +16,14 @@ click_log.basic_config(logger)
 @click.option('--validate', '-v', is_flag=True)
 @click.option('--skip-images', '-i', is_flag=True, help="Do not import images - useful for testing.")
 @click.option('--output', '-o', default=None, type=click.Choice(['console', 'file', 'bdj']))
-@click.option('--family', '-f', default=None, help='Import specific family and child taxa.')
-@click.option('--taxon', '-t', default=None, help='Import specific taxon.')
+@click.option('--family', '-f', default=None, help='Import specific family only')
+@click.option('--species', '-s', default=None, help='Import specific species only.')
 @click_log.simple_verbosity_option(logger)
-def main(limit, validate, output, family, taxon, skip_images):
+def main(limit, validate, output, family, species, skip_images):
 
     response = None
     doc = Doc('Marine Fauna and Flora of the Falkland Islands',
-              limit, taxon, family, skip_images)
+              limit, family, species, skip_images)
 
     api = API()
 

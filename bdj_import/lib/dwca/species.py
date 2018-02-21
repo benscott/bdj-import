@@ -52,13 +52,20 @@ class SpeciesTaxon(Taxon):
         return self.re.sub('', self.scientific_name).strip()
 
     @property
+    def specific_epithet(self):
+        m = self.re.search(self.scientific_name)
+        try:
+            return m.group(1)
+        except AttributeError:
+            # Not all scientific names include specific epithet
+            return None
+
+    @property
     def taxon_authors(self):
         """
-        We don't want sp.x italicised, so add as taxon authors
+        We don't want sp.x italicised, so add sp 1. as taxon authors
         """
-
-        m = self.re.search(self.scientific_name)
-        return m.group(1)
+        return self.specific_epithet
 
     @property
     def notes(self):

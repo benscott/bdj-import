@@ -1,6 +1,5 @@
 import csv
 import os
-import sys
 import pkg_resources
 
 
@@ -18,15 +17,3 @@ class File(object):
 
     def __next__(self):
         return next(self.reader)
-
-
-if __name__ == '__main__':
-    file = File('falklands-utf8.dwca.csv')
-    # file = yrange(10)
-
-    for row in file:
-        # print(row)
-        # print('--')
-        print(row)
-        pass
-    print('HERE')

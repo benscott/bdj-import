@@ -25,7 +25,7 @@ class Doc:
         self.family = family
 
         # Parse the DWC files
-        # self.new_species = DWCATaxa('dwca/new_species.csv')
+        self.new_species = DWCATaxa('dwca/new_species.csv')
         self.vouchers = DWCATaxa('dwca/vouchers.csv')
 
         self._add_document_info()
@@ -34,7 +34,7 @@ class Doc:
         # After the objects (general structure has been created), we can
         # add the dependent metadata and treatments
         self._add_metadata()
-        # self._add_taxon_treatments()
+        self._add_taxon_treatments()
         self._add_checklists()
 
     def _add_document_info(self):
@@ -171,9 +171,8 @@ class Doc:
 
         self._add_nested_elements(treatment_fields_el,
                                   ['classification', 'value'], treatment.scientific_name)
-        self._add_nested_elements(treatment_fields_el,
-                                  ['type_of_treatment', 'value'],
-                                  'New taxon'
+        self._add_nested_elements(treatment_fields_el, ['type_of_treatment', 'value'],
+                                  'Redescription or species observation'
                                   )
 
         self._add_nested_elements(

@@ -58,6 +58,8 @@ class DWCATaxa():
 
             # If this is a taxon to be excluded continue to next
             if normalized_taxon in self.excluded_taxa:
+                print(normalized_taxon)
+                print('YEYEYEY')
                 continue
 
             # Ensure the family exists

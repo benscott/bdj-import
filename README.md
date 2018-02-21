@@ -8,10 +8,10 @@ https://arpha.pensoft.net/dev/example/taxonomic_paper
 
 TODO:
 
-Genus / subgenus etc.,
-Check how this was working on the ones I sent over.
+Mappings
 
-Add into checklist??
+Excluded taxa?
+
 
 
 TO CHECK: 

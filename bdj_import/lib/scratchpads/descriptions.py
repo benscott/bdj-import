@@ -11,37 +11,22 @@ logger = logging.getLogger()
 
 class Descriptions(object):
 
-    # Some Scratchpad species descriptions are tagged with different terms
-    # These provide mappings from DWCA => Scratchpad Term
-    scratchpad_term_mappings = {
-        'Amage scultpa': 'Amage Malmgren, 1866',
-        'Ancistrosyllis cf groenlandica': 'Pilargidae de Saint-Joseph, 1899',
-        'Apistobranchus sp. 1': 'Apistobranchidae Mesnil and Caullery, 1898',
-        'Aricidea (Aedicira) antarctica': 'Aricidea (Allia) antarctica Hartmann-Schröder & Rosenfeldt, 1988',
-        'Cirrophorus cf. furcatus': 'Cirrophorus Ehlers, 1908',
-        'Cossura sp. 1': 'Cossuridae Day, 1963',
-        'Desdemona? sp. 1': 'Desdemona Banse, 1957',
-        'Eucranta mollis': 'Eucranta Malmgren, 1866',
-        'Galathowenia sp. 1': 'Oweniidae Rioja, 1917',
-        'Jasmineira cf. regularis': 'Jasmineira regularis form 2 Hartman, 1978',
-        'Jasmineira cf. regularis (form 1)': 'Jasmineira regularis form 1 Hartman, 1978',
-        'Jasmineira (Claviramus?) sp. 5': 'Claviramus Fitzhugh, 2002',
-        'Myxicola cf. sulcata': 'Myxicola Koch in Renier, 1847',
-        'Neoleanira magellanica': 'Sigalionidae (Neoleanira?) sp. 1',
-        'Nichomache cf. lumbricalis': 'Nichomache Malmgren, 1865',
-        'Paramphinome australis': 'Amphinomidae Lamarck, 1818',
-        'Parexogone cf. wolfi': 'Exogone (Paraexogone) cf. wolfi San Martín, 1991',
-        'Potamethus sp. 1': 'Potamethus Chamberlin, 1919',
-        'Schistomeringos sp 1': 'Dorvilleidae Chamberlin, 1919',
-        'Scolelepis sp. 1': 'Scololepis sp. 1',
-        'Sternaspis sp. 1': 'Sternaspidae Carus, 1863'
-    }
-
     file_name = 'scratchpads/species-description-export.csv'
+    term_mappings_file_name = 'scratchpads/term_mappings.csv'
 
     def __init__(self):
+        self.scratchpad_term_mappings = self._get_term_mappings()
         self.descriptions = []
         self._parse_data()
+
+    def _get_term_mappings(self):
+        # Build a dictionary of term mappings, from DWCA file taxon
+        # concepts to their equivalent on scratchpads
+        mappings = {}
+        for row in File(self.term_mappings_file_name):
+            if row['Scratchpad']:
+                mappings[row['taxonConcept']] = row['Scratchpad']
+        return mappings
 
     def _parse_data(self):
 

@@ -3,10 +3,10 @@ import abc
 
 class Taxon(object):
 
-    def __init__(self, scientific_name, description, taxonomy=[], figures=[]):
+    def __init__(self, taxon_concept_id, scientific_name, description, figures=[]):
 
+        self.taxon_concept_id = taxon_concept_id
         self.scientific_name = scientific_name
-        self.taxonomy = taxonomy
         self.description = description
         self.figures = figures
         self.materials = []

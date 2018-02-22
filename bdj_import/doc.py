@@ -145,18 +145,18 @@ class Doc:
 
             # If we have suplied a family name cli parameter, continue if
             # the fmaily scientific name does not match
-            if not self._apply_cli_filters(family=family.scientific_name):
+            if not self._apply_cli_filters(family=family.taxon_concept_id):
                 continue
 
             logger.debug("Processing treatment: family %s.",
-                         family.scientific_name)
+                         family.taxon_concept_id)
 
             for species in family.list_species():
-                if not self._apply_cli_filters(count=count, species=species.scientific_name):
+                if not self._apply_cli_filters(count=count, species=species.taxon_concept_id):
                     continue
 
                 logger.debug("Processing treatment: species %s.",
-                             species.scientific_name)
+                             species.taxon_concept_id)
 
                 treatment_el = self._build_taxon_treatment(species)
                 taxon_treatments.append(treatment_el)
@@ -170,7 +170,7 @@ class Doc:
         )
 
         self._add_nested_elements(treatment_fields_el,
-                                  ['classification', 'value'], treatment.scientific_name)
+                                  ['classification', 'value'], treatment.taxon_concept_id)
         self._add_nested_elements(treatment_fields_el, ['type_of_treatment', 'value'],
                                   'Redescription or species observation'
                                   )
@@ -193,13 +193,6 @@ class Doc:
                 material_fields_el = self._add_nested_elements(
                     materials_el, ['material', 'fields']
                 )
-                self._add_nested_elements(material_fields_el,
-                                          ['type_status', 'value'], 'Other material'
-                                          )
-
-                self._add_nested_elements(material_fields_el, [
-                    'scientificname', 'value'], treatment.species)
-
                 for fn, value in material.items():
                     self._add_nested_elements(
                         material_fields_el, [fn, 'value'], value)
@@ -222,7 +215,7 @@ class Doc:
             self._add_material_detail(treatment_el,
                                       'diagnosis', treatment.diagnosis)
 
-        # Always add notes, do we can add the inline citations
+        # Always add notes, so we can add the inline citations
         notes_el = self._add_material_detail(treatment_el, 'notes', notes)
 
         for citation_id in citation_ids:
@@ -343,21 +336,21 @@ class Doc:
 
             # If we have suplied a family name cli parameter, continue if
             # the fmaily scientific name does not match
-            if not self._apply_cli_filters(family=family.scientific_name):
+            if not self._apply_cli_filters(family=family.taxon_concept_id):
                 continue
 
             logger.debug("Processing checklist: Family %s.",
-                         family.scientific_name)
+                         family.taxon_concept_id)
 
             self._add_checklist(
                 checklist_el, name=family.family_name, rank='family', taxon=family)
 
             for family_species in family.list_species():
-                if not self._apply_cli_filters(count=count, species=family_species.scientific_name):
+                if not self._apply_cli_filters(count=count, species=family_species.taxon_concept_id):
                     continue
 
                 logger.debug("Processing checklist: Species %s.",
-                             family_species.scientific_name)
+                             family_species.taxon_concept_id)
 
                 self._add_checklist(
                     checklist_el, name=family_species.species, rank='species', taxon=family_species)
@@ -382,7 +375,7 @@ class Doc:
                 links_el, ['link_type', 'value'], 'Other URL')
 
             self._add_nested_elements(
-                links_el, ['label', 'value'], 'Falklands Scratchpad')
+                links_el, ['label', 'value'], 'Falkland Islands Scratchpad')
 
     @property
     def xml(self):

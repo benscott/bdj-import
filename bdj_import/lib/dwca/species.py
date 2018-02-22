@@ -2,38 +2,37 @@ import re
 from fuzzywuzzy import fuzz
 
 from bdj_import.lib.dwca.taxon import Taxon
-from bdj_import.lib.helpers import normalize
+from bdj_import.lib.helpers import normalize, strip_parenthesis
 
 
 class SpeciesTaxon(Taxon):
 
     # Fields to include in material detail
     material_fields = [
-        'family',
-        'scientificName',
-        'kingdom',
-        'phylum',
-        'class',
-        'waterBody',
-        'stateProvince',
-        'locality',
-        'verbatimLocality',
-        'maximumDepthInMeters',
-        'locationRemarks',
+        # 'country',
+        # 'family',
+        # 'locality',
+        # 'taxonConceptID',
+        # 'waterBody',
+        'catalogNumber',
+        # 'class',
         'decimalLatitude',
         'decimalLongitude',
-        'geodeticDatum',
-        'samplingProtocol',
         'eventDate',
         'eventTime',
+        # 'fieldNotes',
         'fieldNumber',
-        'fieldNotes',
+        # 'geodeticDatum',
         'individualCount',
-        'preparations',
-        'catalogNumber',
-        'taxonConceptID',
-        'country',
-        'stateProvince',
+        # 'kingdom',
+        # 'locationRemarks',
+        'maximumDepthInMeters',
+        # 'phylum',
+        # 'preparations',
+        'samplingProtocol',
+        # 'scientificName',
+        # 'stateProvince',
+        # 'verbatimLocality',
     ]
 
     def __init__(self, **kwargs):
@@ -43,17 +42,26 @@ class SpeciesTaxon(Taxon):
         self.re = re.compile(r'(sp.\s?[0-9])$')
 
     def add_material(self, data):
-        self.materials.append({
+
+        # Prepend 'sample' to field number
+        data['fieldNumber'] = 'Sample {}'.format(data['fieldNumber'])
+        material = {
             k.lower(): normalize(v) for k, v in data.items() if k in self.material_fields and v
-        })
+        }
+        material['type_status'] = self._get_type_status(data)
+        self.materials.append(material)
+
+    @staticmethod
+    def _get_type_status(data):
+        return data.get('typeStatus').capitalize()
 
     @property
     def species(self):
-        return self.re.sub('', self.scientific_name).strip()
+        return self.re.sub('', self.taxon_concept_id).strip()
 
     @property
     def specific_epithet(self):
-        m = self.re.search(self.scientific_name)
+        m = self.re.search(self.taxon_concept_id)
         try:
             return m.group(1)
         except AttributeError:
@@ -65,7 +73,21 @@ class SpeciesTaxon(Taxon):
         """
         We don't want sp.x italicised, so add sp 1. as taxon authors
         """
-        return self.specific_epithet
+        if self.specific_epithet:
+            return self.specific_epithet
+        else:
+            return self._get_authority_from_scientific_name()
+
+    def _get_authority_from_scientific_name(self):
+        """
+        Scientific name includes authority, so extract
+        By replacing the entire taxon concept part
+        """
+        # Some taoxn concept / scientific names have non-matching
+        # parenthesis - so strip them out ebfore doing the re
+        authority = strip_parenthesis(self.scientific_name).replace(
+            strip_parenthesis(self.taxon_concept_id), '')
+        return strip_parenthesis(authority.strip())
 
     @property
     def notes(self):
@@ -110,4 +132,4 @@ class SpeciesTaxon(Taxon):
         return fields
 
     def __repr__(self):
-        return 'Species ({})'.format(self.scientific_name)
+        return 'Species ({})'.format(self.taxon_concept_id)

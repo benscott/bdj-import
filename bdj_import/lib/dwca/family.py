@@ -13,7 +13,7 @@ class FamilyTaxon(Taxon):
         self._scientific_name_parts = self._split_scientific_name()
 
     def add_species(self, species):
-        self.species_treatments[species.scientific_name] = species
+        self.species_treatments[species.taxon_concept_id] = species
 
     def get_species(self, taxon):
         return self.species_treatments.get(taxon, None)
@@ -43,7 +43,7 @@ class FamilyTaxon(Taxon):
         Returns:
             TYPE: Description
         """
-        return self.description.scientific_name.split(' ', 1)
+        return self.scientific_name.split(' ', 1)
 
     @property
     def notes(self):

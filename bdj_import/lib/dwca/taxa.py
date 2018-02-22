@@ -53,9 +53,16 @@ class DWCATaxa():
             try:
                 self._data[family]
             except KeyError:
+                family_species_description = species_descriptions.get_family(
+                    family)
+
                 self._data[family] = FamilyTaxon(
-                    scientific_name=family,
-                    description=species_descriptions.get_family(family)
+                    taxon_concept_id=family,
+                    # In the DWCA we have no details for the family
+                    # So retrieve the scientific name from the species
+                    # description
+                    scientific_name=family_species_description.scientific_name,
+                    description=family_species_description
                 )
 
             species = self._data[family].get_species(normalized_taxon)
@@ -72,21 +79,12 @@ class DWCATaxa():
                     logger.warning('No species description for %s',
                                    normalized_taxon)
 
-                treatment_taxonomy_fields = [
-                    ('genus', 'genus'),
-                    ('subgenus', 'subgenus'),
-                    ('family', 'family'),
-                    ('taxon_authors', 'scientificNameAuthorship'),
-                    ('specific_epithet', 'specificEpithet'),
-                ]
-
-                treatment_taxonomy = {fld: normalize(
-                    row.get(col)) for fld, col in treatment_taxonomy_fields if row.get(col, None)}
-
+                scientific_name = normalize(row.get('scientificName')) if row.get(
+                    'scientificName') else normalized_taxon
                 species = SpeciesTaxon(
-                    scientific_name=normalized_taxon,
+                    taxon_concept_id=normalized_taxon,
+                    scientific_name=scientific_name,
                     description=treatment_description,
-                    taxonomy=treatment_taxonomy,
                     figures=treatment_figures,
                 )
 

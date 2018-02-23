@@ -39,7 +39,7 @@ class SpeciesTaxon(Taxon):
         self.fields = self._parse_species_description(
             kwargs.get('description'))
         super(SpeciesTaxon, self).__init__(**kwargs)
-        self.re = re.compile(r'(sp.\s?[0-9])$')
+        self.re = re.compile(r'(sp.\s?[0-9][a-zA-Z]{0,2})$')
 
     def add_material(self, data):
 
@@ -84,10 +84,17 @@ class SpeciesTaxon(Taxon):
         By replacing the entire taxon concept part
         """
         # Some taoxn concept / scientific names have non-matching
-        # parenthesis - so strip them out ebfore doing the re
-        authority = strip_parenthesis(self.scientific_name).replace(
-            strip_parenthesis(self.taxon_concept_id), '')
-        return strip_parenthesis(authority.strip())
+        # parenthesis - so strip them out before doing the re
+        scientific_name_without_parenthesis = strip_parenthesis(
+            self.scientific_name)
+        taxon_concept_id_without_parenthesis = strip_parenthesis(
+            self.taxon_concept_id)
+        # Only strip if the taxon concept string exists in the scientific name string
+        # If it doesn't we return the whole scientific name which is wrong
+        if taxon_concept_id_without_parenthesis in scientific_name_without_parenthesis:
+            authority = scientific_name_without_parenthesis.replace(
+                taxon_concept_id_without_parenthesis, '')
+            return strip_parenthesis(authority.strip())
 
     @property
     def notes(self):

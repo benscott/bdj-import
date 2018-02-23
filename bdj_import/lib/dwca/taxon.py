@@ -9,7 +9,6 @@ class Taxon(object):
         self.scientific_name = scientific_name
         self.description = description
         self.figures = figures
-        self.materials = []
 
     @property
     def tid(self):

@@ -40,6 +40,7 @@ class SpeciesTaxon(Taxon):
             kwargs.get('description'))
         super(SpeciesTaxon, self).__init__(**kwargs)
         self.re = re.compile(r'(sp.\s?[0-9][a-zA-Z]{0,2})$')
+        self.materials = []
 
     def add_material(self, data):
 
@@ -50,6 +51,20 @@ class SpeciesTaxon(Taxon):
         }
         material['type_status'] = self._get_type_status(data)
         self.materials.append(material)
+
+    def get_materials_ordered_by_type(self):
+        """
+        Return a list of materials ordered by type status:
+            Holotype
+            Paratypes
+            Other material
+        """
+        type_status_order = [
+            'Holotype',
+            'Paratype',
+            'Other material'
+        ]
+        return sorted(self.materials, key=lambda k: type_status_order.index(k['type_status']))
 
     @staticmethod
     def _get_type_status(data):

@@ -189,7 +189,7 @@ class Doc:
             # Add material fields
             materials_el = ET.SubElement(treatment_el, "materials")
 
-            for material in treatment.materials:
+            for material in treatment.get_materials_ordered_by_type():
                 material_fields_el = self._add_nested_elements(
                     materials_el, ['material', 'fields']
                 )

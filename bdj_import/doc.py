@@ -136,11 +136,11 @@ class Doc:
 
         return True
 
-    def _add_taxon_treatments(self):
-
-        taxon_treatments = self.root.find('objects/taxon_treatments')
-        count = 0
-
+    def _get_ordered_new_species(self):
+        """
+        Taxon treatments need to be added ordered by name
+        """
+        ordered_species = {}
         for family in self.new_species.values():
 
             # If we have suplied a family name cli parameter, continue if
@@ -152,15 +152,20 @@ class Doc:
                          family.taxon_concept_id)
 
             for species in family.list_species():
-                if not self._apply_cli_filters(count=count, species=species.taxon_concept_id):
+                if not self._apply_cli_filters(count=len(ordered_species), species=species.taxon_concept_id):
                     continue
 
-                logger.debug("Processing treatment: species %s.",
-                             species.taxon_concept_id)
+            ordered_species[species.taxon_concept_id] = species
 
-                treatment_el = self._build_taxon_treatment(species)
-                taxon_treatments.append(treatment_el)
-                count += 1
+        return sorted(ordered_species.items())
+
+    def _add_taxon_treatments(self):
+
+        taxon_treatments_el = self.root.find('objects/taxon_treatments')
+        for taxon_concept_id, species in self._get_ordered_new_species():
+            logger.debug("Processing treatment: species %s.", taxon_concept_id)
+            treatment_el = self._build_taxon_treatment(species)
+            taxon_treatments_el.append(treatment_el)
 
     def _build_taxon_treatment(self, treatment):
 

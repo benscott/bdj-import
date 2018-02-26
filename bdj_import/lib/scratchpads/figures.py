@@ -15,7 +15,7 @@ class Figures(object):
             self._data.setdefault(row['TID'], []).append(
                 {
                     'description': row['Description'],
-                    'path': row['Path'].replace('/files/', '/files/styles/large/public/'),
+                    'path': row['Path'],
                 })
 
     def __getitem__(self, tid):
